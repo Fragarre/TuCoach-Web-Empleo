@@ -24,12 +24,8 @@ def extraer_grupo(url: str) -> tuple[str | None, str | None]:
         return None, None
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--aplicar", action="store_true")
-    parser.add_argument("--limite", type=int)
-    args = parser.parse_args()
-
+def revisar_grupos_bop_local(*, aplicar: bool = False, limite: int | None = None) -> dict[str, int | str]:
+    """Audita oportunidades locales sin grupo/subgrupo y completa solo datos confirmados."""
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -50,8 +46,8 @@ def main() -> None:
         """
     )
         filas = cur.fetchall()
-        if args.limite:
-            filas = filas[: args.limite]
+        if limite:
+            filas = filas[:limite]
 
         encontrados = 0
         for proceso_id, denominacion, url in filas:
@@ -60,7 +56,7 @@ def main() -> None:
                 continue
             encontrados += 1
             print(f"{proceso_id} | {subgrupo or grupo} | {denominacion}")
-            if args.aplicar:
+            if aplicar:
                 cur.execute(
                     """
                     UPDATE procesos
@@ -72,13 +68,23 @@ def main() -> None:
                     (grupo, subgrupo, proceso_id),
                 )
 
-        if args.aplicar:
+        if aplicar:
             conn.commit()
         else:
             conn.rollback()
 
         cur.close()
-        print(f"Revisadas: {len(filas)} | Clasificadas: {encontrados} | Modo: {'APLICAR' if args.aplicar else 'SOLO_REVISION'}")
+        resultado = {"revisadas": len(filas), "clasificadas": encontrados, "modo": "APLICAR" if aplicar else "SOLO_REVISION"}
+        print(f"Revisadas: {len(filas)} | Clasificadas: {encontrados} | Modo: {resultado['modo']}")
+        return resultado
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--aplicar", action="store_true")
+    parser.add_argument("--limite", type=int)
+    args = parser.parse_args()
+    revisar_grupos_bop_local(aplicar=args.aplicar, limite=args.limite)
 
 
 if __name__ == "__main__":
