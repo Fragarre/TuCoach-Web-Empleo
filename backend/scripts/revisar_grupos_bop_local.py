@@ -5,6 +5,10 @@ Por defecto es SOLO_REVISION. Use --aplicar para persistir los valores encontrad
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.bop_valencia import _grupo_subgrupo, _obtener_texto
 from app.database import get_connection
