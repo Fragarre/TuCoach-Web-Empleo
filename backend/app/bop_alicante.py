@@ -14,6 +14,7 @@ import httpx
 
 from .ambito_administrativo import clasificar_ambito_administrativo
 from .database import get_connection
+from .bop_valencia import _grupo_subgrupo, _obtener_texto
 from .estado_proceso import clasificar_evento_terminal
 from .organismos import resolver_fuente, resolver_organismo
 from .bop_valencia_municipios import (
@@ -77,6 +78,16 @@ def _normalizar(registro: dict[str, Any]) -> dict[str, Any]:
         ),
     }
 
+
+
+def _grupo_subgrupo_documento(url: str | None) -> tuple[str | None, str | None]:
+    if not url:
+        return None, None
+    try:
+        with httpx.Client(timeout=45, follow_redirects=True) as client:
+            return _grupo_subgrupo(_obtener_texto(client, url))
+    except Exception:
+        return None, None
 
 
 def _sin(texto: str) -> str:
@@ -410,6 +421,7 @@ def importar_bop_alicante(
                         (estado_terminal, proceso_id),
                     )
             else:
+                grupo, subgrupo = _grupo_subgrupo_documento(hallazgo.get("url_documento"))
                 cursor.execute(
                     "SELECT id FROM procesos WHERE identificador_estable=%s",
                     (hallazgo["referencia"],),
@@ -418,6 +430,11 @@ def importar_bop_alicante(
                 if existente:
                     proceso_id = existente["id"]
                     resultado["existentes"] += 1
+                    if grupo or subgrupo:
+                        cursor.execute(
+                            "UPDATE procesos SET grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),updated_at=NOW() WHERE id=%s",
+                            (grupo, subgrupo, proceso_id),
+                        )
                 else:
                     municipio = hallazgo["denominacion"]
                     org = resolver_organismo(
@@ -445,10 +462,10 @@ def importar_bop_alicante(
                     cursor.execute(
                         """
                         INSERT INTO procesos
-                            (organismo_id,codigo_externo,identificador_estable,denominacion,
+                            (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,
                              estado,fecha_convocatoria,fuente_principal_id,es_oportunidad,
                              ambito_administrativo,datos_json,updated_at)
-                        VALUES (%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW())
+                        VALUES (%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW())
                         RETURNING id
                         """,
                         (
@@ -456,6 +473,8 @@ def importar_bop_alicante(
                             hallazgo["edicto"],
                             hallazgo["referencia"],
                             hallazgo["extracto"],
+                            grupo,
+                            subgrupo,
                             fecha_publicacion,
                             fuente_id,
                             Jsonb({
