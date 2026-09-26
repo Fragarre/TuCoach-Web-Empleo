@@ -1,4 +1,4 @@
-"""Revisa y, opcionalmente, completa grupo/subgrupo desde la convocatoria oficial.
+"""Revisa y, opcionalmente, completa grupo/subgrupo desde publicaciones BOP oficiales.
 
 Por defecto es SOLO_REVISION. Use --aplicar para persistir los valores encontrados.
 """
@@ -25,43 +25,54 @@ def extraer_grupo(url: str) -> tuple[str | None, str | None]:
 
 
 def revisar_grupos_bop_local(*, aplicar: bool = False, limite: int | None = None) -> dict[str, int | str]:
-    """Audita oportunidades locales sin grupo/subgrupo y completa solo datos confirmados."""
+    """Audita oportunidades locales y completa solo clasificaciones explícitas en BOP."""
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-        """
-        SELECT p.id, p.denominacion, p.datos_json->>'url_oficial'
-        FROM procesos p
-        WHERE p.es_oportunidad = TRUE
-          AND p.grupo IS NULL
-          AND p.subgrupo IS NULL
-          AND p.datos_json->>'url_oficial' IS NOT NULL
-          AND (
-              p.codigo_externo LIKE 'BOPV-%'
-              OR p.codigo_externo LIKE 'BOPA-%'
-              OR p.codigo_externo LIKE 'BOPCS-%'
-              OR p.datos_json->>'provincia' IN ('Valencia', 'Alicante', 'Castellón', 'Castellon')
-          )
-        ORDER BY p.id
-        """
-    )
+            """
+            SELECT DISTINCT p.id, p.denominacion, pub.url
+            FROM procesos p
+            JOIN organismos o ON o.id = p.organismo_id
+            JOIN publicaciones pub ON pub.proceso_id = p.id
+            WHERE p.es_oportunidad = TRUE
+              AND (p.grupo IS NULL OR p.subgrupo IS NULL)
+              AND o.tipo IN ('AYUNTAMIENTO', 'DIPUTACION')
+              AND LOWER(COALESCE(o.provincia, '')) IN
+                  ('valencia', 'alicante', 'castellón', 'castellon')
+              AND UPPER(COALESCE(pub.tipo, '')) = 'BOP'
+              AND pub.url IS NOT NULL
+            ORDER BY p.id, pub.url
+            """
+        )
         filas = cur.fetchall()
+
+        procesos = {}
+        for proceso_id, denominacion, url in filas:
+            entrada = procesos.setdefault(proceso_id, {"denominacion": denominacion, "urls": []})
+            if url not in entrada["urls"]:
+                entrada["urls"].append(url)
+
+        items = list(procesos.items())
         if limite:
-            filas = filas[:limite]
+            items = items[:limite]
 
         encontrados = 0
-        for proceso_id, denominacion, url in filas:
-            grupo, subgrupo = extraer_grupo(url)
+        for proceso_id, datos in items:
+            grupo = subgrupo = None
+            for url in datos["urls"]:
+                grupo, subgrupo = extraer_grupo(url)
+                if grupo or subgrupo:
+                    break
             if not (grupo or subgrupo):
                 continue
             encontrados += 1
-            print(f"{proceso_id} | {subgrupo or grupo} | {denominacion}")
+            print(f"{proceso_id} | {subgrupo or grupo} | {datos['denominacion']}")
             if aplicar:
                 cur.execute(
                     """
                     UPDATE procesos
-                    SET grupo = COALESCE(%s, grupo),
-                        subgrupo = COALESCE(%s, subgrupo),
+                    SET grupo = COALESCE(grupo, %s),
+                        subgrupo = COALESCE(subgrupo, %s),
                         updated_at = NOW()
                     WHERE id = %s
                     """,
@@ -74,10 +85,9 @@ def revisar_grupos_bop_local(*, aplicar: bool = False, limite: int | None = None
             conn.rollback()
 
         cur.close()
-        resultado = {"revisadas": len(filas), "clasificadas": encontrados, "modo": "APLICAR" if aplicar else "SOLO_REVISION"}
-        print(f"Revisadas: {len(filas)} | Clasificadas: {encontrados} | Modo: {resultado['modo']}")
+        resultado = {"revisadas": len(items), "clasificadas": encontrados, "modo": "APLICAR" if aplicar else "SOLO_REVISION"}
+        print(f"Revisadas: {len(items)} | Clasificadas: {encontrados} | Modo: {resultado['modo']}")
         return resultado
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
