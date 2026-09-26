@@ -12,6 +12,7 @@ from .ambito_administrativo import clasificar_ambito_administrativo
 from .bop_valencia_municipios import _clasificar_anuncio, _sin
 from .bop_alicante import seleccionar_proceso_seguimiento
 from .database import get_connection
+from .bop_valencia import _grupo_subgrupo, _obtener_texto
 from .organismos import resolver_fuente, resolver_organismo
 from .boe_local_import import recuperar_boe_para_proceso_bop
 
@@ -313,6 +314,16 @@ def consultar_bop_castellon(*, desde: date | None = None, hasta: date | None = N
     resultado["detalle"] = candidatos
     return resultado
 
+
+
+def _grupo_subgrupo_documento(url: str | None) -> tuple[str | None, str | None]:
+    if not url:
+        return None, None
+    try:
+        with httpx.Client(timeout=45, follow_redirects=True) as client:
+            return _grupo_subgrupo(_obtener_texto(client, url))
+    except Exception:
+        return None, None
 
 
 def _fecha_bop(valor: str | None) -> date | None:
@@ -628,6 +639,7 @@ def importar_bop_castellon(
                     })
                     continue
 
+                grupo, subgrupo = _grupo_subgrupo_documento(hallazgo.get("url_documento"))
                 cursor.execute(
                     "SELECT id FROM procesos WHERE identificador_estable=%s",
                     (hallazgo["referencia"],),
@@ -636,6 +648,11 @@ def importar_bop_castellon(
                 if existente:
                     proceso_id = existente["id"]
                     resultado["existentes"] += 1
+                    if grupo or subgrupo:
+                        cursor.execute(
+                            "UPDATE procesos SET grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),updated_at=NOW() WHERE id=%s",
+                            (grupo, subgrupo, proceso_id),
+                        )
                     if hallazgo.get("plazas") is not None:
                         cursor.execute(
                             "UPDATE procesos SET plazas=%s,updated_at=NOW() WHERE id=%s AND plazas IS NULL",
@@ -691,10 +708,10 @@ def importar_bop_castellon(
                     cursor.execute(
                         """
                         INSERT INTO procesos
-                            (organismo_id,codigo_externo,identificador_estable,denominacion,
+                            (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,
                              estado,plazas,fecha_convocatoria,fuente_principal_id,es_oportunidad,
                              ambito_administrativo,datos_json,updated_at)
-                        VALUES (%s,%s,%s,%s,'EN_CURSO',%s,%s,%s,TRUE,'SI',%s,NOW())
+                        VALUES (%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,%s,TRUE,'SI',%s,NOW())
                         RETURNING id
                         """,
                         (
@@ -702,6 +719,8 @@ def importar_bop_castellon(
                             hallazgo["id_anuncio"],
                             hallazgo["referencia"],
                             hallazgo["titulo"],
+                            grupo,
+                            subgrupo,
                             hallazgo.get("plazas"),
                             fecha_publicacion,
                             fuente_id,
