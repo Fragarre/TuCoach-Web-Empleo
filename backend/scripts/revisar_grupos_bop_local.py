@@ -30,9 +30,9 @@ def main() -> None:
     parser.add_argument("--limite", type=int)
     args = parser.parse_args()
 
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
         """
         SELECT p.id, p.denominacion, p.datos_json->>'url_oficial'
         FROM procesos p
@@ -49,37 +49,36 @@ def main() -> None:
         ORDER BY p.id
         """
     )
-    filas = cur.fetchall()
-    if args.limite:
-        filas = filas[: args.limite]
+        filas = cur.fetchall()
+        if args.limite:
+            filas = filas[: args.limite]
 
-    encontrados = 0
-    for proceso_id, denominacion, url in filas:
-        grupo, subgrupo = extraer_grupo(url)
-        if not (grupo or subgrupo):
-            continue
-        encontrados += 1
-        print(f"{proceso_id} | {subgrupo or grupo} | {denominacion}")
+        encontrados = 0
+        for proceso_id, denominacion, url in filas:
+            grupo, subgrupo = extraer_grupo(url)
+            if not (grupo or subgrupo):
+                continue
+            encontrados += 1
+            print(f"{proceso_id} | {subgrupo or grupo} | {denominacion}")
+            if args.aplicar:
+                cur.execute(
+                    """
+                    UPDATE procesos
+                    SET grupo = COALESCE(%s, grupo),
+                        subgrupo = COALESCE(%s, subgrupo),
+                        updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (grupo, subgrupo, proceso_id),
+                )
+
         if args.aplicar:
-            cur.execute(
-                """
-                UPDATE procesos
-                SET grupo = COALESCE(%s, grupo),
-                    subgrupo = COALESCE(%s, subgrupo),
-                    updated_at = NOW()
-                WHERE id = %s
-                """,
-                (grupo, subgrupo, proceso_id),
-            )
+            conn.commit()
+        else:
+            conn.rollback()
 
-    if args.aplicar:
-        conn.commit()
-    else:
-        conn.rollback()
-
-    cur.close()
-    conn.close()
-    print(f"Revisadas: {len(filas)} | Clasificadas: {encontrados} | Modo: {'APLICAR' if args.aplicar else 'SOLO_REVISION'}")
+        cur.close()
+        print(f"Revisadas: {len(filas)} | Clasificadas: {encontrados} | Modo: {'APLICAR' if args.aplicar else 'SOLO_REVISION'}")
 
 
 if __name__ == "__main__":
