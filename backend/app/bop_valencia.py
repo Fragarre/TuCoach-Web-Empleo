@@ -94,7 +94,18 @@ def _plazas(s: str) -> int | None:
 
 def _grupo_subgrupo(s: str) -> tuple[str | None, str | None]:
     n = _sin(s)
-    m = re.search(r"(?:grupo\s*/\s*subgrupo|grup\s*/\s*subgrup|subgrupo|subgrup|grupo|grup)\s*[:.-]?\s*([a-z]\d(?:/\d)?)", n, re.I)
+    combinado = re.search(
+        r"(?:grupo\s*/\s*subgrupo|grup\s*/\s*subgrup)\s*[:.-]?\s*([a-z])\s*/\s*([a-z]\d)",
+        n,
+        re.I,
+    )
+    if combinado:
+        return combinado.group(1).upper(), combinado.group(2).upper()
+    m = re.search(
+        r"(?:subgrupo|subgrup|grupo|grup|categoria\s+professional|categoria\s+profesional)\s*[:.-]?\s*([a-z]\d(?:/\d)?)",
+        n,
+        re.I,
+    )
     if not m:
         return None, None
     subgrupo = m.group(1).upper()
