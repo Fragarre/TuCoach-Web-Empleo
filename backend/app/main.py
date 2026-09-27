@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from access import exigir_employment_access
 from auth import UsuarioAutenticado, usuario_actual
 from .bop_valencia_patch import diagnosticar_bop, importar_bop_valencia
-from .bop_valencia_cleanup import limpiar_anuncios_no_empleo, normalizar_bop_prueba
 from .gva_enhanced import importar_gva_robusto, limpiar_gva_navegacion
 from .gva_cleanup import limpiar_gva_stale, corregir_turnos_gva
 from .gva_estatal_service import diagnosticar_filtros_plazo_gva, importar_gva_estatal
@@ -296,18 +295,6 @@ def importar_bop_valencia_endpoint(x_import_secret: str | None = Header(default=
     try:
         resultado=importar_bop_valencia(historico=historico,dias=dias); resultado["oportunidades_marcadas"]=True; return resultado
     except Exception as exc: raise HTTPException(status_code=502, detail=f"Error en importación BOP Valencia: {exc}") from exc
-
-@app.post("/admin/cleanup/bop-valencia-no-empleo")
-def cleanup_bop_valencia_no_empleo(x_import_secret: str | None = Header(default=None)) -> dict[str, int]:
-    _validar_import_secret(x_import_secret)
-    try: return limpiar_anuncios_no_empleo()
-    except Exception as exc: raise HTTPException(status_code=502, detail=f"Error en limpieza BOP Valencia: {exc}") from exc
-
-@app.post("/admin/cleanup/bop-valencia-normalizar-prueba")
-def cleanup_bop_valencia_normalizar_prueba(x_import_secret: str | None = Header(default=None)) -> dict[str, int]:
-    _validar_import_secret(x_import_secret)
-    try: return normalizar_bop_prueba()
-    except Exception as exc: raise HTTPException(status_code=502, detail=f"Error en normalización BOP Valencia: {exc}") from exc
 
 @app.get("/admin/debug/diputacion-alicante")
 def debug_diputacion_alicante(x_import_secret: str | None = Header(default=None)) -> dict[str, Any]:

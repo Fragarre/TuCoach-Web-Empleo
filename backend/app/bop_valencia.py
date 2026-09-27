@@ -354,18 +354,3 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     stats["anuncios"].append({"registro": registro, "titulo": titulo, "fecha_publicacion": fecha.isoformat() if fecha else None, "proceso_id": proceso_id, "identificador_estable": estable, "tipo_publicacion": tipo_publicacion})
             connection.commit()
     return stats
-
-
-def limpiar_anuncios_no_empleo() -> dict[str, int]:
-    registros = ("2026/10924", "2026/10931", "2026/11054")
-    with get_connection() as connection:
-        with connection.cursor() as cursor:
-            organismo_id, _ = _resolver_identidad_bop_valencia(cursor)
-            cursor.execute("SELECT id FROM procesos WHERE organismo_id=%s AND codigo_externo = ANY(%s)", (organismo_id, list(registros)))
-            ids = [row[0] for row in cursor.fetchall()]
-            if ids:
-                cursor.execute("DELETE FROM cambios WHERE proceso_id = ANY(%s)", (ids,))
-                cursor.execute("DELETE FROM publicaciones WHERE proceso_id = ANY(%s)", (ids,))
-                cursor.execute("DELETE FROM procesos WHERE id = ANY(%s)", (ids,))
-            connection.commit()
-    return {"procesos_eliminados": len(ids)}
