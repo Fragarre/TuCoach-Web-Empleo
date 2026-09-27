@@ -251,11 +251,12 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         ),
     )
 
-    # Se ejecuta después de las altas: completa también las oportunidades
-    # nuevas con datos que el documento oficial declara explícitamente.
+    # Se ejecuta después de las altas para dejar preparado un informe de
+    # clasificaciones explícitas. Nunca escribe desde el ciclo periódico:
+    # la aplicación del histórico requiere una ejecución manual y aprobada.
     registrar(
         "auditoria_clasificacion_puestos",
-        lambda: revisar_clasificacion_puestos(aplicar=aplicar),
+        lambda: revisar_clasificacion_puestos(aplicar=False),
     )
 
     estados = [fuente["estado"] for fuente in resultado["estado_fuentes"].values()]
