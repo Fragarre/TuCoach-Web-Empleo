@@ -45,6 +45,7 @@ def revisar_clasificacion_puestos(
     aplicar: bool = False,
     limite: int | None = None,
     desde_id: int = 0,
+    ordenar_por_reciente: bool = False,
 ) -> dict[str, Any]:
     """Revisa oportunidades con clasificación incompleta y deja trazabilidad."""
     with get_connection() as conexion, conexion.cursor(row_factory=dict_row) as cursor:
@@ -58,9 +59,11 @@ def revisar_clasificacion_puestos(
                    OR NULLIF(BTRIM(p.subgrupo),'') IS NULL
                    OR NULLIF(BTRIM(p.cuerpo_escala),'') IS NULL)
               AND p.id > %s
-            ORDER BY p.id
+            ORDER BY
+                CASE WHEN %s THEN p.updated_at END DESC NULLS LAST,
+                p.id
             """,
-            (desde_id,),
+            (desde_id, ordenar_por_reciente),
         )
         procesos = list(cursor.fetchall())
         if limite is not None:
@@ -117,4 +120,4 @@ def revisar_clasificacion_puestos(
         else:
             conexion.rollback()
     ultimo_id_revisado = procesos[-1]["id"] if procesos else None
-    return {"revisadas": revisadas, "clasificadas": clasificadas, "sin_documento": sin_documento, "errores_documento": errores_documento, "desde_id": desde_id, "ultimo_id_revisado": ultimo_id_revisado, "modo": "APLICAR" if aplicar else "SOLO_REVISION", "detalles": detalles}
+    return {"revisadas": revisadas, "clasificadas": clasificadas, "sin_documento": sin_documento, "errores_documento": errores_documento, "desde_id": desde_id, "orden_reciente": ordenar_por_reciente, "ultimo_id_revisado": ultimo_id_revisado, "modo": "APLICAR" if aplicar else "SOLO_REVISION", "detalles": detalles}

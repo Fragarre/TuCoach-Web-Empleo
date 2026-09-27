@@ -260,7 +260,11 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
         registrar(
             "clasificacion_puestos",
-            lambda: revisar_clasificacion_puestos(aplicar=True, limite=15),
+            lambda: revisar_clasificacion_puestos(
+                aplicar=True,
+                limite=15,
+                ordenar_por_reciente=True,
+            ),
         )
 
     estados = [fuente["estado"] for fuente in resultado["estado_fuentes"].values()]
