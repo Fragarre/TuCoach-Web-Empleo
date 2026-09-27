@@ -1,25 +1,26 @@
-# NetReto Web — Empleo
+# TuCoach Web — Empleo
 
-Módulo independiente de seguimiento de empleo público para NetReto.
+Módulo de descubrimiento y seguimiento de oportunidades de empleo público
+administrativo en la Comunidad Valenciana, servido en `netexamenes.com/empleo`.
 
-## Principios
+## Arquitectura actual
 
-- Repositorio y base de datos independientes de `OpoCoach-Web` / NetReto actual.
-- No modificar la base de datos actual de NetReto.
-- Fuentes oficiales como referencia principal.
-- Un proceso selectivo mantiene identidad estable e historial de publicaciones y cambios.
-- Acceso inicial: usuario autenticado con suscripción activa.
-- La capacidad de acceso a Empleo queda separada para permitir un futuro plan o complemento específico.
+- Este repositorio contiene los recolectores, la lógica de normalización y el
+  ejecutor periódico de Empleo.
+- La aplicación web y el backend público activos se despliegan desde
+  `Fragarre/TuCoach-Web`.
+- El backend público `opocoach-web-staging-backend` integra este repositorio
+  como submódulo y publica sus rutas bajo `/empleo`.
+- La base de datos de Empleo se mantiene separada de la base de datos general.
 
-## Estado
+Consulta [docs/PUNTO_8_AUTOMATIZACION.md](docs/PUNTO_8_AUTOMATIZACION.md) para
+la operación periódica y sus variables de entorno.
 
-Fundación inicial del proyecto. No contiene todavía integración con producción ni con el dominio público de NetReto.
+## Principios de seguridad
 
-## Estructura prevista
-
-- `frontend/` — interfaz de usuario.
-- `backend/` — API y lógica de negocio.
-- `database/` — esquema y migraciones de la BD independiente.
-- `recolectores/` — obtención desde fuentes oficiales.
-- `normalizacion/` — identificación estable y detección de cambios.
-- `notificaciones/` — preparación y envío de avisos.
+- Las fuentes oficiales son la referencia principal.
+- No se infiere la clasificación de una plaza por su denominación: grupo,
+  subgrupo y escala solo se incorporan cuando el documento oficial los declara.
+- La revisión histórica de clasificaciones no sobrescribe información ya
+  existente y se ejecuta en modo solo lectura salvo indicación explícita.
+- No se incluyen secretos ni URLs privadas en el repositorio.
