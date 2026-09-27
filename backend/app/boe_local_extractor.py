@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from .ambito_administrativo import clasificar_ambito_administrativo
+from .bop_valencia import _grupo_subgrupo
 from .boe_local_diagnostico import (
     BOE_SUMARIO,
     DEPARTAMENTO_LOCAL_CODIGO,
@@ -127,9 +128,12 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
         turno = tm.group(1).strip().rstrip(",")
     elif re.search(r"promoci[oó]n interna", fragmento, flags=re.I):
         turno = "promoción interna"
+    grupo, subgrupo = _grupo_subgrupo(fragmento)
     return {
         "plazas": plazas,
         "denominacion": denominacion,
+        "grupo": grupo,
+        "subgrupo": subgrupo,
         "sistema_selectivo": sistema,
         "turno": turno,
         "ambito_administrativo": ambito,
@@ -213,6 +217,8 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                         "entidad": entidad,
                         "provincia": provincia,
                         "denominacion": plaza["denominacion"],
+                        "grupo": plaza["grupo"],
+                        "subgrupo": plaza["subgrupo"],
                         "plazas": plaza["plazas"],
                         "sistema_selectivo": plaza["sistema_selectivo"],
                         "turno": plaza["turno"],
