@@ -36,6 +36,12 @@ class ClasificacionPuestoTests(unittest.TestCase):
             {"grupo": None, "subgrupo": None, "cuerpo_escala": None},
         )
 
+    def test_extrae_etiquetas_valencianas(self) -> None:
+        self.assertEqual(
+            extraer_clasificacion_declarada("Grup: C. Subgrup: C1. Escala: Administració General."),
+            {"grupo": "C", "subgrupo": "C1", "cuerpo_escala": "Administración General"},
+        )
+
     def test_acepta_grupo_sin_subgrupo(self) -> None:
         self.assertEqual(
             extraer_clasificacion_declarada("Grupo: A. Escala: Administración Especial."),

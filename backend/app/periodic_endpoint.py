@@ -9,6 +9,7 @@ import httpx
 from fastapi import Header, HTTPException, Query
 
 from .empleo_admin_catalogo import router
+from .clasificacion_auditoria import revisar_clasificacion_puestos
 from .periodic import ejecutar_periodico
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,27 @@ def periodic_empleo(
     except Exception as exc:
         logger.exception("Error en ciclo periódico de Empleo")
         raise HTTPException(status_code=502, detail=f"Error en ciclo periódico de Empleo: {exc}") from exc
+
+
+@router.post("/clasificacion-puestos")
+def clasificacion_puestos(
+    aplicar: bool = Query(default=False),
+    limite: int = Query(default=25, ge=1, le=50),
+    x_import_secret: str | None = Header(default=None),
+    x_cron_secret: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Audita o completa una tanda acotada de clasificaciones documentadas.
+
+    El valor por defecto es solo lectura. El límite evita que una fuente lenta
+    afecte a la disponibilidad pública.
+    """
+    if not _autorizado(x_import_secret, x_cron_secret):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    try:
+        return revisar_clasificacion_puestos(aplicar=aplicar, limite=limite)
+    except Exception as exc:
+        logger.exception("Error auditando clasificación de puestos")
+        raise HTTPException(status_code=502, detail=f"Error auditando clasificación: {exc}") from exc
 
 
 @router.post("/periodic-diagnostico-fuente")

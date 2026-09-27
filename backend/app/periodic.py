@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import os
 import traceback
 from typing import Any, Callable
 
@@ -17,6 +18,7 @@ from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from .gva_estatal_service import importar_gva_estatal
 from .notificaciones_generales import enviar_envios_pendientes, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
+from .clasificacion_auditoria import revisar_clasificacion_puestos
 
 
 DIAS_SOLAPE_DEFECTO = 7
@@ -249,6 +251,14 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
             aplicar=aplicar,
         ),
     )
+
+    # Se activa explícitamente tras validar la auditoría histórica. Procesa una
+    # tanda pequeña, aislada del resto de fuentes, y nunca reescribe campos.
+    if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
+        registrar(
+            "clasificacion_puestos",
+            lambda: revisar_clasificacion_puestos(aplicar=True, limite=15),
+        )
 
     estados = [fuente["estado"] for fuente in resultado["estado_fuentes"].values()]
     if aplicar:
