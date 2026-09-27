@@ -60,6 +60,7 @@ def periodic_empleo(
 def clasificacion_puestos(
     aplicar: bool = Query(default=False),
     limite: int = Query(default=25, ge=1, le=50),
+    desde_id: int = Query(default=0, ge=0),
     x_import_secret: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None),
     x_classification_secret: str | None = Header(default=None),
@@ -72,7 +73,11 @@ def clasificacion_puestos(
     if not _autorizado_clasificacion(x_import_secret, x_cron_secret, x_classification_secret):
         raise HTTPException(status_code=403, detail="No autorizado")
     try:
-        return revisar_clasificacion_puestos(aplicar=aplicar, limite=limite)
+        return revisar_clasificacion_puestos(
+            aplicar=aplicar,
+            limite=limite,
+            desde_id=desde_id,
+        )
     except Exception as exc:
         logger.exception("Error auditando clasificación de puestos")
         raise HTTPException(status_code=502, detail=f"Error auditando clasificación: {exc}") from exc

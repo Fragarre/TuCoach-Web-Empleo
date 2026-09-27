@@ -40,7 +40,12 @@ def _urls_proceso(cursor: Any, proceso_id: int, datos_json: dict[str, Any] | Non
     return urls
 
 
-def revisar_clasificacion_puestos(*, aplicar: bool = False, limite: int | None = None) -> dict[str, Any]:
+def revisar_clasificacion_puestos(
+    *,
+    aplicar: bool = False,
+    limite: int | None = None,
+    desde_id: int = 0,
+) -> dict[str, Any]:
     """Revisa oportunidades con clasificación incompleta y deja trazabilidad."""
     with get_connection() as conexion, conexion.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
@@ -52,8 +57,10 @@ def revisar_clasificacion_puestos(*, aplicar: bool = False, limite: int | None =
               AND (NULLIF(BTRIM(p.grupo),'') IS NULL
                    OR NULLIF(BTRIM(p.subgrupo),'') IS NULL
                    OR NULLIF(BTRIM(p.cuerpo_escala),'') IS NULL)
+              AND p.id > %s
             ORDER BY p.id
-            """
+            """,
+            (desde_id,),
         )
         procesos = list(cursor.fetchall())
         if limite is not None:
@@ -109,4 +116,4 @@ def revisar_clasificacion_puestos(*, aplicar: bool = False, limite: int | None =
             conexion.commit()
         else:
             conexion.rollback()
-    return {"revisadas": revisadas, "clasificadas": clasificadas, "sin_documento": sin_documento, "errores_documento": errores_documento, "modo": "APLICAR" if aplicar else "SOLO_REVISION", "detalles": detalles}
+    return {"revisadas": revisadas, "clasificadas": clasificadas, "sin_documento": sin_documento, "errores_documento": errores_documento, "desde_id": desde_id, "modo": "APLICAR" if aplicar else "SOLO_REVISION", "detalles": detalles}
