@@ -167,6 +167,19 @@ def _extraer_plazas(titulo: str) -> int | None:
     return None
 
 
+def _grupo_subgrupo_hallazgo(hallazgo: dict[str, Any], *, descargar: bool) -> tuple[str | None, str | None]:
+    grupo, subgrupo = _bop._grupo_subgrupo(hallazgo.get("titulo") or "")
+    if grupo or subgrupo or not descargar or not hallazgo.get("url"):
+        return grupo, subgrupo
+    headers = {"User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)", "Accept-Language": "es-ES,es;q=0.9"}
+    try:
+        with httpx.Client(timeout=30, headers=headers, follow_redirects=True) as client:
+            return _bop._grupo_subgrupo(_bop._obtener_texto(client, hallazgo["url"]))
+    except Exception:
+        # No se infiere la clasificación a partir del nombre del puesto.
+        return None, None
+
+
 def _familia_perfil(titulo: str) -> str | None:
     n = _sin(titulo)
     if "auxiliar administr" in n:
@@ -314,9 +327,15 @@ def importar_municipales_bop(*, hasta: date, dias: int = 30, aplicar: bool = Fal
             estable = f"BOPMUN:{h['registro']}"
             cursor.execute("SELECT id FROM procesos WHERE identificador_estable=%s", (estable,))
             ex = cursor.fetchone()
+            grupo, subgrupo = _grupo_subgrupo_hallazgo(h, descargar=aplicar)
             if ex:
                 resultado["existentes"] += 1
-                resultado["detalle"].append({"registro": h["registro"], "clase": "NUEVA_CONVOCATORIA", "estado": "EXISTENTE", "proceso_id": ex["id"]})
+                if aplicar and (grupo or subgrupo):
+                    cursor.execute(
+                        "UPDATE procesos SET grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),updated_at=NOW() WHERE id=%s",
+                        (grupo, subgrupo, ex["id"]),
+                    )
+                resultado["detalle"].append({"registro": h["registro"], "clase": "NUEVA_CONVOCATORIA", "estado": "EXISTENTE", "proceso_id": ex["id"], "grupo": grupo, "subgrupo": subgrupo})
                 continue
             if not aplicar:
                 resultado["detalle"].append(h)
@@ -340,10 +359,10 @@ def importar_municipales_bop(*, hasta: date, dias: int = 30, aplicar: bool = Fal
                 cursor.execute("INSERT INTO organismos (nombre,tipo,municipio,provincia,activo,created_at,updated_at) VALUES (%s,'AYUNTAMIENTO',%s,'Valencia',TRUE,NOW(),NOW()) RETURNING id", (nombre, municipio))
                 organismo_id = cursor.fetchone()["id"]
                 resultado["organismos_creados"] += 1
-            cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,plazas,estado,fecha_convocatoria,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json,updated_at) VALUES (%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW()) RETURNING id", (organismo_id, h["registro"], estable, h["titulo"], _extraer_plazas(h["titulo"]), h["fecha_publicacion"], fuente_id, Jsonb({"url_oficial": h["url"], "bop_registro": h["registro"], "origen": "BOP_VALENCIA_MUNICIPAL"})))
+            cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,plazas,estado,fecha_convocatoria,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW()) RETURNING id", (organismo_id, h["registro"], estable, h["titulo"], grupo, subgrupo, _extraer_plazas(h["titulo"]), h["fecha_publicacion"], fuente_id, Jsonb({"url_oficial": h["url"], "bop_registro": h["registro"], "origen": "BOP_VALENCIA_MUNICIPAL"})))
             pid = cursor.fetchone()["id"]
             resultado["nuevos"] += 1
-            resultado["detalle"].append({"registro": h["registro"], "clase": "NUEVA_CONVOCATORIA", "estado": "NUEVO", "proceso_id": pid, "municipio": municipio})
+            resultado["detalle"].append({"registro": h["registro"], "clase": "NUEVA_CONVOCATORIA", "estado": "NUEVO", "proceso_id": pid, "municipio": municipio, "grupo": grupo, "subgrupo": subgrupo})
 
         if aplicar:
             connection.commit()
