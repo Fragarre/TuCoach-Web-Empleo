@@ -694,6 +694,17 @@ def admin_organismos(_: UsuarioAutenticado = Depends(_admin_empleo)) -> list[dic
         return cursor.fetchall()
 
 
+@router.post("/procesos/alta-manual")
+def admin_crear_proceso_alta_manual(
+    payload: ProcesoManualAltaRequest,
+    usuario: UsuarioAutenticado = Depends(_admin_empleo),
+) -> dict[str, Any]:
+    try:
+        return crear_proceso_manual_alta(payload, usuario)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/procesos/{proceso_id}")
 def admin_proceso(proceso_id: int, _: UsuarioAutenticado = Depends(_admin_empleo)) -> dict[str, Any]:
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
@@ -707,17 +718,6 @@ def admin_proceso(proceso_id: int, _: UsuarioAutenticado = Depends(_admin_empleo
 def admin_crear_proceso(payload: ProcesoAdminRequest, usuario: UsuarioAutenticado = Depends(_admin_empleo)) -> dict[str, Any]:
     try:
         return crear_proceso_manual(payload, usuario)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/procesos/alta-manual")
-def admin_crear_proceso_alta_manual(
-    payload: ProcesoManualAltaRequest,
-    usuario: UsuarioAutenticado = Depends(_admin_empleo),
-) -> dict[str, Any]:
-    try:
-        return crear_proceso_manual_alta(payload, usuario)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
