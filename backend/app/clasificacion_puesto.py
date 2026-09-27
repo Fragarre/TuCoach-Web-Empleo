@@ -66,7 +66,8 @@ def extraer_clasificacion_declarada(texto: str) -> ClasificacionPuesto:
     # Se conserva el literal oficial. El límite evita capturar el resto de la
     # publicación cuando el PDF no mantiene saltos de línea.
     escala = re.search(
-        r"\b(?:cuerpo\s*(?:/|y)?\s*escala|cos\s*(?:/|i)?\s*escala|escala)\s*[:.\-]\s*"
+        r"\b(?:cuerpo\s*(?:/|y)?\s*escala|cos\s*(?:/|i)?\s*escala|escala)"
+        r"\s*(?:(?::|\.|\-)|(?:d['’](?:e)?|de))\s*"
         r"(Administraci(?:[oó]n|ó)\s+(?:General|Especial))\b",
         texto,
         re.IGNORECASE,

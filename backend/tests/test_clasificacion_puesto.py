@@ -42,6 +42,16 @@ class ClasificacionPuestoTests(unittest.TestCase):
             {"grupo": "C", "subgrupo": "C1", "cuerpo_escala": "Administración General"},
         )
 
+    def test_extrae_redaccion_valenciana_de_bases(self) -> None:
+        texto = (
+            "enquadrada en l’escala d’administració general, subescala administrativa, "
+            "subgrup C1, les funcions a realitzar seran les definides"
+        )
+        self.assertEqual(
+            extraer_clasificacion_declarada(texto),
+            {"grupo": "C", "subgrupo": "C1", "cuerpo_escala": "Administración General"},
+        )
+
     def test_acepta_grupo_sin_subgrupo(self) -> None:
         self.assertEqual(
             extraer_clasificacion_declarada("Grupo: A. Escala: Administración Especial."),
