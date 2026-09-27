@@ -126,8 +126,6 @@ def _datos_boe(convocatoria: dict[str, Any], codigo: str) -> dict[str, Any]:
         "fecha_boe": convocatoria.get("fecha_boe"),
         "entidad": convocatoria.get("entidad"),
         "denominacion": convocatoria.get("denominacion"),
-        "grupo": convocatoria.get("grupo"),
-        "subgrupo": convocatoria.get("subgrupo"),
         "plazas": convocatoria.get("plazas"),
         "bases_bop": convocatoria.get("bases_bop"),
         "plazo_solicitudes_literal": convocatoria.get("plazo_solicitudes_literal"),
@@ -422,15 +420,14 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                 cursor.execute(
                     """
                     INSERT INTO procesos (
-                        organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,plazas,
+                        organismo_id,codigo_externo,identificador_estable,denominacion,plazas,
                         sistema_selectivo,turno,estado,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,
                         es_oportunidad,ambito_administrativo,datos_json,updated_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s::date::timestamptz,%s,TRUE,'SI',%s,NOW())
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s::date::timestamptz,%s,TRUE,'SI',%s,NOW())
                     RETURNING id
                     """,
                     (
                         organismo["id"], codigo, estable, convocatoria.get("denominacion"),
-                        convocatoria.get("grupo"), convocatoria.get("subgrupo"),
                         convocatoria.get("plazas"), convocatoria.get("sistema_selectivo"),
                         convocatoria.get("turno"), convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"),
                         fuente_boe_id, Jsonb(datos_proceso),
