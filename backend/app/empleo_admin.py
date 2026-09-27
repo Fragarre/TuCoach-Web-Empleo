@@ -18,6 +18,8 @@ from pypdf import PdfReader
 
 from auth import UsuarioAutenticado, usuario_actual
 from .database import get_connection
+from .municipios_cv import catalogo_municipios_cv, municipio_por_ine
+from .organismos import resolver_organismo
 
 REVISION_ESTADOS = ("PENDIENTE_REVISION", "PUBLICADA", "DESCARTADA")
 ORIGENES = ("AUTOMATICO", "MANUAL")
@@ -64,7 +66,7 @@ class ProcesoManualAltaRequest(ProcesoAdminRequest):
     organismo_id: int | None = None
     administracion: Literal["GENERALITAT", "DIPUTACION", "AYUNTAMIENTO"]
     provincia: Literal["Alicante", "Castellón", "Valencia"] | None = None
-    municipio: str | None = Field(default=None, max_length=120)
+    municipio_codigo_ine: str | None = Field(default=None, min_length=5, max_length=5)
 
 
 class RevisionRequest(BaseModel):
@@ -278,15 +280,6 @@ _DIPUTACIONES = {
 }
 
 
-def _nombre_ayuntamiento(municipio: str) -> str:
-    limpio = " ".join(municipio.split()).strip()
-    if len(limpio) < 2:
-        raise ValueError("Indica el municipio del ayuntamiento")
-    if any(caracter.isdigit() for caracter in limpio):
-        raise ValueError("El municipio no puede contener números")
-    return f"Ayuntamiento de {limpio}"
-
-
 def _resolver_organismo_manual(cursor, payload: ProcesoManualAltaRequest) -> int:
     """Resuelve o crea únicamente los organismos admitidos en el alta manual.
 
@@ -294,13 +287,13 @@ def _resolver_organismo_manual(cursor, payload: ProcesoManualAltaRequest) -> int
     crean como pendientes de revisión junto con su primera convocatoria manual.
     """
     if payload.administracion == "GENERALITAT":
-        if payload.provincia or payload.municipio:
+        if payload.provincia or payload.municipio_codigo_ine:
             raise ValueError("La Generalitat Valenciana no requiere provincia ni municipio")
         nombre, tipo, provincia, municipio = (
             "Generalitat Valenciana", "ADMINISTRACION_AUTONOMICA", None, None,
         )
     elif payload.administracion == "DIPUTACION":
-        if payload.provincia not in _DIPUTACIONES or payload.municipio:
+        if payload.provincia not in _DIPUTACIONES or payload.municipio_codigo_ine:
             raise ValueError("Selecciona una de las tres provincias para la diputación")
         nombre, tipo, provincia, municipio = (
             _DIPUTACIONES[payload.provincia], "DIPUTACION", payload.provincia, None,
@@ -308,28 +301,26 @@ def _resolver_organismo_manual(cursor, payload: ProcesoManualAltaRequest) -> int
     else:
         if payload.provincia not in _DIPUTACIONES:
             raise ValueError("Selecciona la provincia del ayuntamiento")
-        if not payload.municipio:
-            raise ValueError("Indica el municipio del ayuntamiento")
+        try:
+            municipio_oficial = municipio_por_ine(payload.municipio_codigo_ine)
+        except (httpx.HTTPError, RuntimeError) as exc:
+            raise ValueError("No se ha podido consultar el catálogo oficial de municipios") from exc
+        if municipio_oficial is None or municipio_oficial.provincia != payload.provincia:
+            raise ValueError("Selecciona un municipio válido del catálogo oficial")
         nombre, tipo, provincia, municipio = (
-            _nombre_ayuntamiento(payload.municipio), "AYUNTAMIENTO", payload.provincia,
-            " ".join(payload.municipio.split()).strip(),
+            f"Ayuntamiento de {municipio_oficial.nombre_val}", "AYUNTAMIENTO", payload.provincia,
+            municipio_oficial.nombre_val,
         )
 
-    cursor.execute(
-        """
-        SELECT id FROM organismos
-        WHERE tipo=%s
-          AND COALESCE(provincia, '')=COALESCE(%s, '')
-          AND (
-            LOWER(nombre)=LOWER(%s)
-            OR (%s IS NOT NULL AND LOWER(COALESCE(municipio, ''))=LOWER(%s))
-          )
-        ORDER BY id ASC
-        LIMIT 1
-        """,
-        (tipo, provincia, nombre, municipio, municipio),
-    )
-    existente = cursor.fetchone()
+    existente = resolver_organismo(
+        cursor, tipo=tipo, provincia=provincia, municipio=municipio, nombre=nombre,
+    ) if municipio else None
+    if municipio is None:
+        cursor.execute(
+            "SELECT id FROM organismos WHERE tipo=%s AND LOWER(nombre)=LOWER(%s) ORDER BY id LIMIT 1",
+            (tipo, nombre),
+        )
+        existente = cursor.fetchone()
     if existente:
         return int(existente["id"])
 
@@ -692,6 +683,29 @@ def admin_organismos(_: UsuarioAutenticado = Depends(_admin_empleo)) -> list[dic
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute("SELECT id, nombre FROM organismos ORDER BY nombre ASC")
         return cursor.fetchall()
+
+
+@router.get("/catalogo-municipios")
+def admin_catalogo_municipios(
+    provincia: Literal["Alicante", "Castellón", "Valencia"],
+    _: UsuarioAutenticado = Depends(_admin_empleo),
+) -> list[dict[str, str]]:
+    try:
+        return [
+            {
+                "codigo_ine": municipio.codigo_ine,
+                "nombre": municipio.nombre,
+                "nombre_val": municipio.nombre_val,
+                "etiqueta": municipio.etiqueta,
+            }
+            for municipio in catalogo_municipios_cv()
+            if municipio.provincia == provincia
+        ]
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="No se ha podido consultar el catálogo oficial de municipios.",
+        ) from exc
 
 
 @router.post("/procesos/alta-manual")

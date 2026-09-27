@@ -4,6 +4,7 @@ import unicodedata
 from typing import Any
 
 from .database import get_connection
+from .municipios_cv import municipio_equivalente
 
 
 def _normalizar_identidad(value: str | None) -> str:
@@ -83,7 +84,10 @@ def resolver_organismo(
         if _normalizar_identidad(item.get("provincia")) != provincia_norm:
             continue
         if municipio is not None:
-            if _normalizar_identidad(item.get("municipio")) != municipio_norm:
+            mismo_municipio = _normalizar_identidad(item.get("municipio")) == municipio_norm
+            if not mismo_municipio and tipo.upper() == "AYUNTAMIENTO":
+                mismo_municipio = municipio_equivalente(provincia, item.get("municipio"), municipio)
+            if not mismo_municipio:
                 continue
         elif nombre is not None:
             if _normalizar_identidad(item.get("nombre")) != nombre_norm:
