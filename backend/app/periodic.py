@@ -17,7 +17,6 @@ from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from .gva_estatal_service import importar_gva_estatal
 from .notificaciones_generales import enviar_envios_pendientes, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
-from scripts.revisar_clasificacion_puestos import revisar_clasificacion_puestos
 
 
 DIAS_SOLAPE_DEFECTO = 7
@@ -249,14 +248,6 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
             hasta=fecha_hoy,
             aplicar=aplicar,
         ),
-    )
-
-    # Se ejecuta después de las altas para dejar preparado un informe de
-    # clasificaciones explícitas. Nunca escribe desde el ciclo periódico:
-    # la aplicación del histórico requiere una ejecución manual y aprobada.
-    registrar(
-        "auditoria_clasificacion_puestos",
-        lambda: revisar_clasificacion_puestos(aplicar=False),
     )
 
     estados = [fuente["estado"] for fuente in resultado["estado_fuentes"].values()]
