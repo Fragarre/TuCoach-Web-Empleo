@@ -4,7 +4,7 @@ import io
 import os
 import re
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -52,6 +52,19 @@ class ProcesoAdminRequest(BaseModel):
     es_oportunidad: bool = True
     revision_estado: str = "PENDIENTE_REVISION"
     observaciones_internas: str | None = None
+
+
+class ProcesoManualAltaRequest(ProcesoAdminRequest):
+    """Alta manual limitada al ámbito cubierto por este producto.
+
+    El identificador del organismo se resuelve en el servidor: el cliente no puede
+    asociar una convocatoria manual a un organismo arbitrario ya existente.
+    """
+
+    organismo_id: int | None = None
+    administracion: Literal["GENERALITAT", "DIPUTACION", "AYUNTAMIENTO"]
+    provincia: Literal["Alicante", "Castellón", "Valencia"] | None = None
+    municipio: str | None = Field(default=None, max_length=120)
 
 
 class RevisionRequest(BaseModel):
@@ -256,6 +269,90 @@ def _row_proceso(cursor, proceso_id: int) -> dict[str, Any] | None:
     )
     row = cursor.fetchone()
     return row if row else None
+
+
+_DIPUTACIONES = {
+    "Alicante": "Diputación Provincial de Alicante",
+    "Castellón": "Diputación Provincial de Castellón",
+    "Valencia": "Diputación Provincial de Valencia",
+}
+
+
+def _nombre_ayuntamiento(municipio: str) -> str:
+    limpio = " ".join(municipio.split()).strip()
+    if len(limpio) < 2:
+        raise ValueError("Indica el municipio del ayuntamiento")
+    if any(caracter.isdigit() for caracter in limpio):
+        raise ValueError("El municipio no puede contener números")
+    return f"Ayuntamiento de {limpio}"
+
+
+def _resolver_organismo_manual(cursor, payload: ProcesoManualAltaRequest) -> int:
+    """Resuelve o crea únicamente los organismos admitidos en el alta manual.
+
+    Los ayuntamientos se introducen con provincia para evitar ambigüedades y se
+    crean como pendientes de revisión junto con su primera convocatoria manual.
+    """
+    if payload.administracion == "GENERALITAT":
+        if payload.provincia or payload.municipio:
+            raise ValueError("La Generalitat Valenciana no requiere provincia ni municipio")
+        nombre, tipo, provincia, municipio = (
+            "Generalitat Valenciana", "ADMINISTRACION_AUTONOMICA", None, None,
+        )
+    elif payload.administracion == "DIPUTACION":
+        if payload.provincia not in _DIPUTACIONES or payload.municipio:
+            raise ValueError("Selecciona una de las tres provincias para la diputación")
+        nombre, tipo, provincia, municipio = (
+            _DIPUTACIONES[payload.provincia], "DIPUTACION", payload.provincia, None,
+        )
+    else:
+        if payload.provincia not in _DIPUTACIONES:
+            raise ValueError("Selecciona la provincia del ayuntamiento")
+        if not payload.municipio:
+            raise ValueError("Indica el municipio del ayuntamiento")
+        nombre, tipo, provincia, municipio = (
+            _nombre_ayuntamiento(payload.municipio), "AYUNTAMIENTO", payload.provincia,
+            " ".join(payload.municipio.split()).strip(),
+        )
+
+    cursor.execute(
+        """
+        SELECT id FROM organismos
+        WHERE tipo=%s
+          AND COALESCE(provincia, '')=COALESCE(%s, '')
+          AND (
+            LOWER(nombre)=LOWER(%s)
+            OR (%s IS NOT NULL AND LOWER(COALESCE(municipio, ''))=LOWER(%s))
+          )
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+        (tipo, provincia, nombre, municipio, municipio),
+    )
+    existente = cursor.fetchone()
+    if existente:
+        return int(existente["id"])
+
+    cursor.execute(
+        """
+        INSERT INTO organismos (nombre, tipo, provincia, municipio, activo, created_at, updated_at)
+        VALUES (%s,%s,%s,%s,TRUE,NOW(),NOW())
+        RETURNING id
+        """,
+        (nombre, tipo, provincia, municipio),
+    )
+    return int(cursor.fetchone()["id"])
+
+
+def crear_proceso_manual_alta(payload: ProcesoManualAltaRequest, usuario: UsuarioAutenticado) -> dict[str, Any]:
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        organismo_id = _resolver_organismo_manual(cursor, payload)
+    # La conexión anterior confirma la posible creación del organismo antes de
+    # insertar el proceso mediante la rutina común, que abre su propia conexión.
+    return crear_proceso_manual(
+        payload.model_copy(update={"organismo_id": organismo_id, "revision_estado": "PENDIENTE_REVISION"}),
+        usuario,
+    )
 
 
 def crear_proceso_manual(payload: ProcesoAdminRequest, usuario: UsuarioAutenticado) -> dict[str, Any]:
@@ -610,6 +707,17 @@ def admin_proceso(proceso_id: int, _: UsuarioAutenticado = Depends(_admin_empleo
 def admin_crear_proceso(payload: ProcesoAdminRequest, usuario: UsuarioAutenticado = Depends(_admin_empleo)) -> dict[str, Any]:
     try:
         return crear_proceso_manual(payload, usuario)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/procesos/alta-manual")
+def admin_crear_proceso_alta_manual(
+    payload: ProcesoManualAltaRequest,
+    usuario: UsuarioAutenticado = Depends(_admin_empleo),
+) -> dict[str, Any]:
+    try:
+        return crear_proceso_manual_alta(payload, usuario)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
