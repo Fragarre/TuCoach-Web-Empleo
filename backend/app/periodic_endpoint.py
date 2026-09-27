@@ -25,6 +25,18 @@ def _autorizado(x_import_secret: str | None, x_cron_secret: str | None) -> bool:
     return False
 
 
+def _autorizado_clasificacion(
+    x_import_secret: str | None,
+    x_cron_secret: str | None,
+    x_classification_secret: str | None,
+) -> bool:
+    """Permite una credencial acotada al backfill de clasificación."""
+    if _autorizado(x_import_secret, x_cron_secret):
+        return True
+    secreto = os.getenv("EMPLOYMENT_CLASSIFICATION_SECRET")
+    return bool(secreto and x_classification_secret and hmac.compare_digest(x_classification_secret, secreto))
+
+
 @router.post("/periodic")
 def periodic_empleo(
     aplicar: bool = Query(default=False),
@@ -50,13 +62,14 @@ def clasificacion_puestos(
     limite: int = Query(default=25, ge=1, le=50),
     x_import_secret: str | None = Header(default=None),
     x_cron_secret: str | None = Header(default=None),
+    x_classification_secret: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Audita o completa una tanda acotada de clasificaciones documentadas.
 
     El valor por defecto es solo lectura. El límite evita que una fuente lenta
     afecte a la disponibilidad pública.
     """
-    if not _autorizado(x_import_secret, x_cron_secret):
+    if not _autorizado_clasificacion(x_import_secret, x_cron_secret, x_classification_secret):
         raise HTTPException(status_code=403, detail="No autorizado")
     try:
         return revisar_clasificacion_puestos(aplicar=aplicar, limite=limite)
