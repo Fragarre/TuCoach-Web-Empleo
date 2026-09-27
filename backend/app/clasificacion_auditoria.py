@@ -116,4 +116,5 @@ def revisar_clasificacion_puestos(
             conexion.commit()
         else:
             conexion.rollback()
-    return {"revisadas": revisadas, "clasificadas": clasificadas, "sin_documento": sin_documento, "errores_documento": errores_documento, "desde_id": desde_id, "modo": "APLICAR" if aplicar else "SOLO_REVISION", "detalles": detalles}
+    ultimo_id_revisado = procesos[-1]["id"] if procesos else None
+    return {"revisadas": revisadas, "clasificadas": clasificadas, "sin_documento": sin_documento, "errores_documento": errores_documento, "desde_id": desde_id, "ultimo_id_revisado": ultimo_id_revisado, "modo": "APLICAR" if aplicar else "SOLO_REVISION", "detalles": detalles}
