@@ -168,7 +168,16 @@ def _extraer_plazas(titulo: str) -> int | None:
 
 
 def _grupo_subgrupo_hallazgo(hallazgo: dict[str, Any], *, descargar: bool) -> tuple[str | None, str | None]:
-    grupo, subgrupo = _bop._grupo_subgrupo(hallazgo.get("titulo") or "")
+    titulo = hallazgo.get("titulo") or ""
+    grupo, subgrupo = _bop._grupo_subgrupo(titulo)
+    if not (grupo or subgrupo):
+        # Algunos títulos oficiales publican la clasificación sin la palabra
+        # "subgrupo", p. ej. "plaça d'administratiu/va C1".
+        n = _sin(titulo)
+        m = re.search(r"(?:auxiliar administr[^.;]{0,80}|administratiu[^.;]{0,80}|administrativ[^.;]{0,80}|tecnic[^.;]{0,80}|tecnico[^.;]{0,80})\\b(A1|A2|C1|C2)\\b", n, re.I)
+        if m:
+            subgrupo = m.group(1).upper()
+            grupo = subgrupo[0]
     if grupo or subgrupo or not descargar or not hallazgo.get("url"):
         return grupo, subgrupo
     headers = {"User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)", "Accept-Language": "es-ES,es;q=0.9"}
