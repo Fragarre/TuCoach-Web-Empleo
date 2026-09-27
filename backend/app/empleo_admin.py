@@ -3,7 +3,9 @@ from __future__ import annotations
 import io
 import os
 import re
+from datetime import date
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import psycopg
@@ -55,6 +57,18 @@ class ProcesoAdminRequest(BaseModel):
 class RevisionRequest(BaseModel):
     estado: str
     observaciones: str | None = None
+
+
+class CorreccionManualRequest(BaseModel):
+    """Campos que un administrador puede corregir sin reescribir la fuente automática."""
+
+    grupo: str | None = None
+    subgrupo: str | None = None
+    cuerpo_escala: str | None = None
+    fecha_apertura: str | None = None
+    fecha_cierre: str | None = None
+    evidencia_url: str = Field(min_length=8)
+    observaciones_internas: str | None = None
 
 
 class TemarioRequest(BaseModel):
@@ -285,9 +299,12 @@ def actualizar_proceso_manual(proceso_id: int, payload: ProcesoAdminRequest, usu
     if payload.revision_estado not in REVISION_ESTADOS:
         raise ValueError("Estado de revisión no válido")
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
-        cursor.execute("SELECT id FROM procesos WHERE id=%s", (proceso_id,))
-        if cursor.fetchone() is None:
+        cursor.execute("SELECT id, origen_dato FROM procesos WHERE id=%s", (proceso_id,))
+        proceso = cursor.fetchone()
+        if proceso is None:
             raise ValueError("Proceso no encontrado")
+        if proceso["origen_dato"] != "MANUAL":
+            raise ValueError("La edición completa solo está disponible para convocatorias creadas manualmente")
         cursor.execute(
             """
             UPDATE procesos SET organismo_id=%s,codigo_externo=%s,identificador_estable=%s,denominacion=%s,
@@ -311,6 +328,123 @@ def actualizar_proceso_manual(proceso_id: int, payload: ProcesoAdminRequest, usu
             ),
         )
         return _row_proceso(cursor, proceso_id) or {"id": proceso_id}
+
+
+def _texto_opcional(valor: str | None) -> str | None:
+    if valor is None:
+        return None
+    texto = valor.strip()
+    return texto or None
+
+
+def _validar_evidencia(url: str) -> str:
+    evidencia = url.strip()
+    parsed = urlparse(evidencia)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Indica un enlace oficial válido como evidencia")
+    return evidencia
+
+
+def _validar_clasificacion(grupo: str | None, subgrupo: str | None, escala: str | None) -> tuple[str | None, str | None, str | None]:
+    grupo = _texto_opcional(grupo)
+    subgrupo = _texto_opcional(subgrupo)
+    escala = _texto_opcional(escala)
+    if grupo:
+        grupo = grupo.upper()
+        if grupo not in {"A", "B", "C", "D", "E"}:
+            raise ValueError("Grupo no válido")
+    if subgrupo:
+        subgrupo = subgrupo.upper()
+        if subgrupo not in {"A1", "A2", "B", "C1", "C2", "D", "E"}:
+            raise ValueError("Subgrupo no válido")
+        if grupo and subgrupo[0] != grupo:
+            raise ValueError("El grupo y el subgrupo no son coherentes")
+        grupo = grupo or subgrupo[0]
+    if escala:
+        escalas = {
+            "administracion general": "Administración General",
+            "administración general": "Administración General",
+            "administracion especial": "Administración Especial",
+            "administración especial": "Administración Especial",
+        }
+        normalizada = escalas.get(escala.casefold())
+        if normalizada is None:
+            raise ValueError("La escala debe ser Administración General o Administración Especial")
+        escala = normalizada
+    return grupo, subgrupo, escala
+
+
+def corregir_proceso_manual(
+    proceso_id: int,
+    payload: CorreccionManualRequest,
+    usuario: UsuarioAutenticado,
+) -> dict[str, Any]:
+    """Registra una corrección humana puntual, sin modificar la fuente ni el origen."""
+    evidencia = _validar_evidencia(payload.evidencia_url)
+    grupo, subgrupo, escala = _validar_clasificacion(payload.grupo, payload.subgrupo, payload.cuerpo_escala)
+    apertura = _texto_opcional(payload.fecha_apertura)
+    cierre = _texto_opcional(payload.fecha_cierre)
+    if (apertura is None) != (cierre is None):
+        raise ValueError("Indica conjuntamente la fecha de apertura y la de cierre")
+    if apertura and cierre:
+        try:
+            if date.fromisoformat(apertura) > date.fromisoformat(cierre):
+                raise ValueError("La fecha de cierre no puede ser anterior a la apertura")
+        except ValueError as exc:
+            if str(exc).startswith("La fecha"):
+                raise
+            raise ValueError("Las fechas deben tener formato AAAA-MM-DD") from exc
+
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        cursor.execute(
+            """
+            SELECT id, grupo, subgrupo, cuerpo_escala, fecha_apertura, fecha_cierre
+            FROM procesos WHERE id=%s FOR UPDATE
+            """,
+            (proceso_id,),
+        )
+        anterior = cursor.fetchone()
+        if anterior is None:
+            raise ValueError("Proceso no encontrado")
+
+        campos = {
+            "grupo": grupo,
+            "subgrupo": subgrupo,
+            "cuerpo_escala": escala,
+            "fecha_apertura": apertura,
+            "fecha_cierre": cierre,
+        }
+        cambios = [
+            (campo, anterior[campo], valor)
+            for campo, valor in campos.items()
+            if (None if anterior[campo] is None else str(anterior[campo])) != valor
+        ]
+        if not cambios:
+            raise ValueError("No hay cambios que guardar")
+
+        cursor.execute(
+            """
+            UPDATE procesos
+            SET grupo=%s, subgrupo=%s, cuerpo_escala=%s,
+                fecha_apertura=%s, fecha_cierre=%s,
+                revisado_at=NOW(), revisado_por=%s::uuid,
+                observaciones_internas=COALESCE(%s, observaciones_internas), updated_at=NOW()
+            WHERE id=%s
+            """,
+            (grupo, subgrupo, escala, apertura, cierre, str(usuario.id), _texto_opcional(payload.observaciones_internas), proceso_id),
+        )
+        resumen = f"Corrección manual verificada. Evidencia: {evidencia}"
+        for campo, valor_anterior, valor_nuevo in cambios:
+            cursor.execute(
+                """
+                INSERT INTO cambios (proceso_id, tipo, campo, valor_anterior, valor_nuevo, resumen, significativo, detectado_at)
+                VALUES (%s, 'CORRECCION_MANUAL', %s, %s, %s, %s, FALSE, NOW())
+                """,
+                (proceso_id, campo, None if valor_anterior is None else str(valor_anterior), None if valor_nuevo is None else str(valor_nuevo), resumen),
+            )
+        resultado = _row_proceso(cursor, proceso_id) or {"id": proceso_id}
+        resultado["campos_corregidos"] = [campo for campo, _, _ in cambios]
+        return resultado
 
 
 def _normalizar_texto(texto: str) -> str:
@@ -456,6 +590,13 @@ def admin_pendientes(limite: int = 100, _: UsuarioAutenticado = Depends(_admin_e
     return listar_pendientes_revision(limite=limite)
 
 
+@router.get("/organismos")
+def admin_organismos(_: UsuarioAutenticado = Depends(_admin_empleo)) -> list[dict[str, Any]]:
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        cursor.execute("SELECT id, nombre FROM organismos ORDER BY nombre ASC")
+        return cursor.fetchall()
+
+
 @router.get("/procesos/{proceso_id}")
 def admin_proceso(proceso_id: int, _: UsuarioAutenticado = Depends(_admin_empleo)) -> dict[str, Any]:
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
@@ -477,6 +618,18 @@ def admin_crear_proceso(payload: ProcesoAdminRequest, usuario: UsuarioAutenticad
 def admin_actualizar_proceso(proceso_id: int, payload: ProcesoAdminRequest, usuario: UsuarioAutenticado = Depends(_admin_empleo)) -> dict[str, Any]:
     try:
         return actualizar_proceso_manual(proceso_id, payload, usuario)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/procesos/{proceso_id}/correccion-manual")
+def admin_corregir_proceso(
+    proceso_id: int,
+    payload: CorreccionManualRequest,
+    usuario: UsuarioAutenticado = Depends(_admin_empleo),
+) -> dict[str, Any]:
+    try:
+        return corregir_proceso_manual(proceso_id, payload, usuario)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
