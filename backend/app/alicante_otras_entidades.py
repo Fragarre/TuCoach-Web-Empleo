@@ -14,6 +14,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from .ambito_administrativo import clasificar_ambito_administrativo
+from .bop_valencia import _grupo_subgrupo, _obtener_texto
 from .database import get_connection
 from .estado_proceso import clasificar_evento_terminal
 from .organismos import resolver_fuente, resolver_organismo
@@ -164,6 +165,19 @@ def diagnosticar_otras_entidades_alicante(*, max_items: int = 200) -> dict[str, 
     return resultado
 
 
+def _grupo_subgrupo_documento(url: str | None) -> tuple[str | None, str | None]:
+    if not url:
+        return None, None
+    headers = {"User-Agent": "TuCoach-Empleo/1.0", "Accept-Language": "es-ES,es;q=0.9"}
+    try:
+        with httpx.Client(timeout=30, headers=headers, follow_redirects=True) as client:
+            return _grupo_subgrupo(_obtener_texto(client, url))
+    except Exception:
+        # La clasificación nunca se infiere por la denominación: si el documento
+        # oficial no puede leerse o no la declara, se conserva como desconocida.
+        return None, None
+
+
 def _int_o_none(value: str | None) -> int | None:
     value = _norm(value)
     if not value:
@@ -246,24 +260,32 @@ def bootstrap_otras_entidades_alicante(*, max_items: int = 200, aplicar: bool = 
             )
             existente = cursor.fetchone()
             plazas = _int_o_none(item.get("vacantes"))
+            grupo, subgrupo = _grupo_subgrupo_documento(item.get("url"))
             if existente:
                 proceso_id = existente["id"]
                 resultado["existentes"] += 1
+                if grupo or subgrupo:
+                    cursor.execute(
+                        "UPDATE procesos SET grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),updated_at=NOW() WHERE id=%s",
+                        (grupo, subgrupo, proceso_id),
+                    )
             else:
                 cursor.execute(
                     """
                     INSERT INTO procesos
-                        (organismo_id,identificador_estable,denominacion,estado,
+                        (organismo_id,identificador_estable,denominacion,grupo,subgrupo,estado,
                          plazas,fecha_convocatoria,fecha_apertura,fecha_cierre,
                          fuente_principal_id,es_oportunidad,ambito_administrativo,
                          datos_json,updated_at)
-                    VALUES (%s,%s,%s,'EN_CURSO',%s,%s,%s,%s,%s,TRUE,'SI',%s,NOW())
+                    VALUES (%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,%s,%s,%s,TRUE,'SI',%s,NOW())
                     RETURNING id
                     """,
                     (
                         organismo_id,
                         item["referencia"],
                         item["denominacion"],
+                        grupo,
+                        subgrupo,
                         plazas,
                         item.get("fecha_bases"),
                         item.get("fecha_inicio_presentacion"),
@@ -306,6 +328,8 @@ def bootstrap_otras_entidades_alicante(*, max_items: int = 200, aplicar: bool = 
                 "entidad": entidad,
                 "denominacion": item["denominacion"],
                 "plazas": plazas,
+                "grupo": grupo,
+                "subgrupo": subgrupo,
             })
         connection.commit()
     return resultado
