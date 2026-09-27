@@ -7,7 +7,15 @@ import time
 import httpx
 
 
-BASE_URL = os.getenv("NETRETO_EMPLEO_API_URL", "https://netreto-empleo-api.onrender.com").rstrip("/")
+# EMPLOYMENT_API_URL es la configuración vigente. Se conserva el nombre
+# histórico como alternativa temporal para no invalidar automatizaciones aún
+# no migradas.
+DEFAULT_API = "https://opocoach-web-staging-backend.onrender.com/empleo"
+BASE_URL = (
+    os.getenv("EMPLOYMENT_API_URL")
+    or os.getenv("NETRETO_EMPLEO_API_URL")
+    or DEFAULT_API
+).rstrip("/")
 SECRET = os.getenv("EMPLOYMENT_CRON_SECRET")
 
 REINTENTOS = 3

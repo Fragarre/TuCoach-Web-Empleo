@@ -8,7 +8,9 @@ import sys
 import httpx
 
 
-DEFAULT_API = "https://netreto-empleo-api.onrender.com"
+# El servicio web independiente histórico fue retirado. Empleo se sirve ahora
+# desde el backend unificado, bajo el prefijo /empleo.
+DEFAULT_API = "https://opocoach-web-staging-backend.onrender.com/empleo"
 
 
 def main() -> int:
