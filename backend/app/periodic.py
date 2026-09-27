@@ -78,7 +78,10 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, aplicar: bool) -> dict[str
                     p.datos_json->'boe_local' IS NULL
                     OR p.datos_json->'boe_local_agregados' IS NOT NULL
                   )
-              AND p.datos_json->>'origen' IN ('BOP_VALENCIA','BOP_CASTELLON','BOP_ALICANTE')
+              AND p.datos_json->>'origen' IN (
+                    'BOP_VALENCIA','BOP_VALENCIA_MUNICIPAL','BOP_CASTELLON','BOP_ALICANTE',
+                    'DIPUTACION_ALICANTE_OTRAS'
+                  )
             ORDER BY p.id
             """
         )

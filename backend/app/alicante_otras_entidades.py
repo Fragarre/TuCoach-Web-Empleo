@@ -241,7 +241,10 @@ def bootstrap_otras_entidades_alicante(*, max_items: int = 200, aplicar: bool = 
                 organismo_id = organismo["id"]
 
             cursor.execute(
-                "SELECT id FROM procesos WHERE identificador_estable=%s",
+                """
+                SELECT id, fecha_convocatoria, fecha_apertura, fecha_cierre
+                FROM procesos WHERE identificador_estable=%s
+                """,
                 (item["referencia"],),
             )
             existente = cursor.fetchone()
@@ -249,6 +252,32 @@ def bootstrap_otras_entidades_alicante(*, max_items: int = 200, aplicar: bool = 
             if existente:
                 proceso_id = existente["id"]
                 resultado["existentes"] += 1
+                # El listado de Diputación puede publicar las fechas después de
+                # las bases. Se completan únicamente huecos; nunca se sustituye
+                # una fecha oficial ya almacenada.
+                cursor.execute(
+                    """
+                    UPDATE procesos
+                    SET fecha_convocatoria=COALESCE(fecha_convocatoria,%s),
+                        fecha_apertura=COALESCE(fecha_apertura,%s),
+                        fecha_cierre=COALESCE(fecha_cierre,%s),
+                        updated_at=CASE
+                            WHEN (fecha_convocatoria IS NULL AND %s IS NOT NULL)
+                              OR (fecha_apertura IS NULL AND %s IS NOT NULL)
+                              OR (fecha_cierre IS NULL AND %s IS NOT NULL)
+                            THEN NOW() ELSE updated_at END
+                    WHERE id=%s
+                    """,
+                    (
+                        item.get("fecha_bases"),
+                        item.get("fecha_inicio_presentacion"),
+                        item.get("fecha_fin_presentacion"),
+                        item.get("fecha_bases"),
+                        item.get("fecha_inicio_presentacion"),
+                        item.get("fecha_fin_presentacion"),
+                        proceso_id,
+                    ),
+                )
             else:
                 cursor.execute(
                     """

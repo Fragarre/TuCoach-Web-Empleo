@@ -238,7 +238,18 @@ def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> d
     # pendientes de BOE mientras no exista esa publicación. No es un plazo
     # desconocido: conocemos el hito oficial que falta.
     fuente_principal_tipo = str(proceso.get("fuente_principal_tipo") or "").upper()
-    if (origen in {"BOP_VALENCIA", "BOP_VALENCIA_MUNICIPAL", "BOP_CASTELLON", "BOP_ALICANTE"} or fuente_principal_tipo == "BOP") and not boe_local:
+    # El catálogo de "otras entidades" de la Diputación de Alicante publica
+    # las bases municipales, pero no constituye la publicación de apertura.
+    # Si no aporta fechas de presentación ni hay BOE asociado, mantiene el
+    # mismo hito pendiente que una base publicada en BOP.
+    origenes_pendientes_boe = {
+        "BOP_VALENCIA",
+        "BOP_VALENCIA_MUNICIPAL",
+        "BOP_CASTELLON",
+        "BOP_ALICANTE",
+        "DIPUTACION_ALICANTE_OTRAS",
+    }
+    if (origen in origenes_pendientes_boe or fuente_principal_tipo == "BOP") and not boe_local:
         return {"codigo": "PENDIENTE_BOE"}
 
     return {"codigo": "NO_DETERMINADO"}
