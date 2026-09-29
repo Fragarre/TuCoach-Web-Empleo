@@ -457,6 +457,7 @@ def recuperar_boe_para_proceso_bop(
     hasta: date | None = None,
     max_dias: int = 180,
     aplicar: bool = False,
+    extraccion_boe: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Recupera BOE histórico para un proceso BOP ya creado, sin ampliar el cron ordinario."""
     hasta = hasta or date.today()
@@ -464,7 +465,21 @@ def recuperar_boe_para_proceso_bop(
     if dias < 1:
         return {"modo": "APLICADO" if aplicar else "SOLO_REVISION", "estado": "FUERA_RANGO"}
     dias = min(dias, max_dias)
-    extraccion = extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
+    if extraccion_boe is None:
+        extraccion = extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
+    else:
+        desde_proceso = hasta.fromordinal(hasta.toordinal() - dias + 1)
+        extraccion = {
+            **extraccion_boe,
+            "detalle": [
+                item for item in extraccion_boe["detalle"]
+                if item.get("fecha_boe") and item["fecha_boe"] >= desde_proceso.isoformat()
+            ],
+            "errores": [
+                item for item in extraccion_boe["errores"]
+                if item.get("fecha") and item["fecha"] >= desde_proceso.isoformat()
+            ],
+        }
 
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
