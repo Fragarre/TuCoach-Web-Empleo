@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import httpx
 
+from .boe_local_extractor import extraer_convocatorias_boe_local
 from .boe_local_import import previsualizar_importacion_boe_local, recuperar_boe_para_proceso_bop
 from .database import get_connection
 from psycopg.rows import dict_row
@@ -89,6 +90,12 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, aplicar: bool) -> dict[str
         )
         pendientes = list(cursor.fetchall())
 
+    extraccion_boe = (
+        extraer_convocatorias_boe_local(hasta=hasta, dias=180)
+        if pendientes
+        else None
+    )
+
     resultado: dict[str, Any] = {
         "modo": "APLICADO" if aplicar else "SOLO_REVISION",
         "pendientes": len(pendientes),
@@ -106,6 +113,7 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, aplicar: bool) -> dict[str
             fecha_bases=proceso["fecha_convocatoria"],
             hasta=hasta,
             aplicar=aplicar,
+            extraccion_boe=extraccion_boe,
         )
         estado = r.get("estado")
         if estado in ("COINCIDENCIA_UNICA", "VINCULADA"):
