@@ -262,9 +262,9 @@ def bootstrap_otras_entidades_alicante(*, max_items: int = 200, aplicar: bool = 
                         fecha_apertura=COALESCE(fecha_apertura,%s),
                         fecha_cierre=COALESCE(fecha_cierre,%s),
                         updated_at=CASE
-                            WHEN (fecha_convocatoria IS NULL AND %s IS NOT NULL)
-                              OR (fecha_apertura IS NULL AND %s IS NOT NULL)
-                              OR (fecha_cierre IS NULL AND %s IS NOT NULL)
+                            WHEN (fecha_convocatoria IS NULL AND %s::date IS NOT NULL)
+                              OR (fecha_apertura IS NULL AND %s::date IS NOT NULL)
+                              OR (fecha_cierre IS NULL AND %s::date IS NOT NULL)
                             THEN NOW() ELSE updated_at END
                     WHERE id=%s
                     """,
