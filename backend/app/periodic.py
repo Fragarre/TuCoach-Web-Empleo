@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import logging
 import os
+import time
 import traceback
 from typing import Any, Callable
 
@@ -156,7 +158,16 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
     }
 
     def registrar(nombre: str, funcion: Callable[[], Any]) -> None:
+        inicio = time.monotonic()
+        logging.getLogger(__name__).warning("PERIODIC INICIO fuente=%s", nombre)
         valor, estado = _ejecutar_fuente(funcion)
+        duracion = time.monotonic() - inicio
+        logging.getLogger(__name__).warning(
+            "PERIODIC FIN fuente=%s estado=%s duracion=%.1fs",
+            nombre,
+            estado,
+            duracion,
+        )
         resultado["fuentes"][nombre] = valor
         resultado["estado_fuentes"][nombre] = estado
 
