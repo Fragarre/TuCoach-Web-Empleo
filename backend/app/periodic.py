@@ -293,7 +293,10 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         lambda: persistir_adc_gva(aplicar=aplicar),
     )
 
-    # Cesiones GVA: solo novedades de bolsas explícitamente relacionadas.\n    registrar("gva_cesiones_datos", lambda: persistir_cesiones_gva(aplicar=aplicar))\n\n    # Se activa explícitamente tras validar la auditoría histórica. Procesa una
+    # Cesiones GVA: solo novedades de bolsas explícitamente relacionadas.
+    registrar("gva_cesiones_datos", lambda: persistir_cesiones_gva(aplicar=aplicar))
+
+    # Se activa explícitamente tras validar la auditoría histórica. Procesa una
     # tanda pequeña, aislada del resto de fuentes, y nunca reescribe campos.
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
         registrar(
