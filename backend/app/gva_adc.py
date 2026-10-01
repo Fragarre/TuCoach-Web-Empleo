@@ -407,8 +407,10 @@ def planificar_adc_gva() -> dict[str, Any]:
             or existentes_por_id_emp.get(id_emp)
         )
         accion = "NUEVA"
+        baseline_adc = False
         if existente:
             datos_previos = existente.get("datos_json") or {}
+            baseline_adc = datos_previos.get("categoria_gva") != "ADC"
             huella_previa = datos_previos.get("huella_novedad_adc")
             huella_actual = _huella_novedad_adc(adc)
             campos_cambian = any((
@@ -427,6 +429,7 @@ def planificar_adc_gva() -> dict[str, Any]:
             accion = "ACTUALIZAR" if campos_cambian else "SIN_CAMBIOS"
         acciones.append({
             "accion": accion,
+            "baseline_adc": baseline_adc,
             "proceso_id": int(existente["id"]) if existente else None,
             "identificador_estable": adc["identificador_estable"],
             "identificador_existente": existente["identificador_estable"] if existente else None,
@@ -635,7 +638,14 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                 cursor.execute(
                     """
                     UPDATE procesos
-                    SET plazas=%s,
+                    SET denominacion=%s,
+                        cuerpo_escala=%s,
+                        grupo=%s,
+                        tipo_proceso='Anuncio difícil cobertura (ADC)',
+                        plazas=%s,
+                        estado='EN_CURSO',
+                        es_oportunidad=TRUE,
+                        ambito_administrativo='SI',
                         fecha_apertura=COALESCE(%s,fecha_apertura),
                         fecha_cierre=COALESCE(%s,fecha_cierre),
                         datos_json=COALESCE(datos_json,'{}'::jsonb) || %s,
@@ -643,7 +653,8 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                     WHERE id=%s AND identificador_estable=%s
                     """,
                     (
-                        adc["plazas"],adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
+                        adc["denominacion"],adc["cuerpo_escala"],adc["grupo"],adc["plazas"],
+                        adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
                         accion["proceso_id"],accion["identificador_existente"],
                     ),
                 )
@@ -655,7 +666,10 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
 
             # Baseline histórico silencioso: una ADC que entra por primera vez y
             # ya no es accionable se registra, pero no genera novedades en bolsas.
-            publicar_en_bolsas = accion["accion"] == "ACTUALIZAR" or bool(adc["accionable"])
+            publicar_en_bolsas = (
+                not accion.get("baseline_adc", False)
+                and (accion["accion"] == "ACTUALIZAR" or bool(adc["accionable"]))
+            )
             if publicar_en_bolsas:
                 huella = _huella_novedad_adc(adc)
                 for bolsa_id in relaciones["resueltas"].values():
