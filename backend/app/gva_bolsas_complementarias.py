@@ -246,6 +246,65 @@ def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[st
                 salida[numero] = dict(fila)
     return salida
 
+def inventariar_bolsas_gva_complementarias() -> dict[str, Any]:
+    """Inventario GVA completo sin consultar ni escribir la base de datos."""
+    descubiertas: dict[int, str] = {}
+    diagnostico: list[dict[str, Any]] = []
+    with nuevo_cliente() as client:
+        for codigo in CODIGOS_ADMIN_ESTRICTOS:
+            try:
+                encontradas = _descubrir_por_codigo(client, codigo)
+                descubiertas.update(encontradas)
+                diagnostico.append({"codigo": codigo, "estado": "OK", "bolsas": len(encontradas)})
+            except Exception as exc:
+                diagnostico.append({
+                    "codigo": codigo,
+                    "estado": "ERROR",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+
+        candidatas: list[dict[str, Any]] = []
+        excluidas: list[dict[str, Any]] = []
+        for id_emp, url in sorted(descubiertas.items()):
+            try:
+                respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+                proceso = _clasificar_detalle(id_emp, url, respuesta.text)
+            except Exception as exc:
+                excluidas.append({
+                    "id_emp": id_emp, "url": url, "motivo": "error_detalle",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                continue
+            item = {
+                "id_emp": id_emp,
+                "denominacion": proceso.get("denominacion"),
+                "cuerpo_escala": proceso.get("cuerpo_escala"),
+                "etapa_actual_gva": (proceso.get("datos_json") or {}).get("etapa_actual_gva"),
+                "fase_gva": (proceso.get("datos_json") or {}).get("fase_gva"),
+                "motivo_exclusion": proceso.get("motivo_exclusion"),
+            }
+            if proceso.get("es_oportunidad"):
+                candidatas.append(item)
+            else:
+                excluidas.append(item)
+
+    en_funcionamiento = [
+        x for x in candidatas
+        if str(x.get("fase_gva") or "").strip().lower() == "bolsa en funcionamiento"
+    ]
+    return {
+        "modo": "INVENTARIO_SIN_BD",
+        "escrituras_bd": False,
+        "descubiertas": len(descubiertas),
+        "candidatas": len(candidatas),
+        "en_funcionamiento": len(en_funcionamiento),
+        "diagnostico": diagnostico,
+        "bolsas_en_funcionamiento": en_funcionamiento,
+        "candidatas_otras_fases": [x for x in candidatas if x not in en_funcionamiento],
+        "excluidas": excluidas,
+    }
+
+
 def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
     """Genera un plan NUEVA/YA_EXISTE sin realizar ninguna escritura."""
     descubiertas: dict[int, str] = {}
