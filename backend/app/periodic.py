@@ -19,6 +19,7 @@ from .bop_castellon import importar_bop_castellon
 from .bop_alicante import importar_bop_alicante
 from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from .gva_estatal_service import importar_gva_estatal
+from .gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
 from .notificaciones_generales import enviar_envios_pendientes, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
 from .clasificacion_auditoria import revisar_clasificacion_puestos
@@ -272,6 +273,14 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
             hasta=fecha_hoy,
             aplicar=aplicar,
         ),
+    )
+
+    # Complemento oficial GVA: bolsas administrativas generales A1-01/A2-01/C1-01/C2-01
+    # que no siempre aparecen en la fuente estatal. La persistencia deduplica
+    # también contra procesos GVAESTATAL ya resueltos a id_emp.
+    registrar(
+        "gva_bolsas_administrativas",
+        lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar),
     )
 
     # Se activa explícitamente tras validar la auditoría histórica. Procesa una
