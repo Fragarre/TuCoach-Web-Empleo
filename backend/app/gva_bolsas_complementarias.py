@@ -99,11 +99,12 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     texto = " ".join(soup.get_text(" ", strip=True).split())
     normalizado = _sin_acentos(texto)
-    bloque_estado = re.search(
+    bloques_estado = list(re.finditer(
         r"Etapa actual\s*:\s*(?P<etapa>.+?)\s+Fase\s*:?[ ]*(?P<fase>.+?)\s+Plazo\b",
         texto,
         re.I,
-    )
+    ))
+    bloque_estado = bloques_estado[-1] if bloques_estado else None
     etapa_actual = (
         " ".join(bloque_estado.group("etapa").split()) if bloque_estado else None
     )
