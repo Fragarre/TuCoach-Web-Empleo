@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
+
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from .database import get_connection
+from . import gva_clean
+from .gva_estatal_service import _get_gva_con_reintentos
 from .estado_proceso import clasificar_evento_terminal
 from .gva_estatal_persist import _resolver_identidad_gva
 from .gva_estatal_seguimiento import (
@@ -50,6 +54,50 @@ def _cargar_bolsas_activas() -> list[dict[str, Any]]:
         item["id_emp"] = id_emp
         salida.append(item)
     return salida
+
+
+def _estado_ficha_gva_directa(client: httpx.Client, proceso: dict[str, Any]) -> dict[str, Any]:
+    """Obtiene una instantánea comparable de una bolsa descubierta directamente en GVA."""
+    id_emp = int(proceso["id_emp"])
+    datos = proceso.get("datos_json") or {}
+    url = str(datos.get("url_detalle") or f"{gva_clean.GVA_BASE_URL}/es/detall-ocupacio-publica?id_emp={id_emp}")
+    respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+    parsed = gva_clean.parsear_detalle(url, respuesta.text, id_emp)
+    pub = parsed.get("publicacion") or {}
+    return {
+        "fuente": "sede.gva.es",
+        "id_emp": id_emp,
+        "url_detalle": url,
+        "contenido_hash": pub.get("contenido_hash"),
+        "denominacion": parsed.get("denominacion"),
+        "estado": parsed.get("estado"),
+        "fecha_apertura": str(parsed.get("fecha_apertura")) if parsed.get("fecha_apertura") else None,
+        "fecha_cierre": str(parsed.get("fecha_cierre")) if parsed.get("fecha_cierre") else None,
+    }
+
+
+def _planificar_gva_directa(proceso: dict[str, Any], actual: dict[str, Any]) -> dict[str, Any]:
+    """Compara una ficha GVA directa sin escribir estado ni publicaciones."""
+    datos = proceso.get("datos_json") or {}
+    anterior = datos.get("seguimiento_gva_directo")
+    base = {
+        "proceso_id": int(proceso["id"]),
+        "identificador_estable": proceso.get("identificador_estable"),
+        "id_emp": int(proceso["id_emp"]),
+        "fuente": "sede.gva.es",
+        "estado_actual": actual,
+    }
+    if not isinstance(anterior, dict) or not anterior.get("contenido_hash"):
+        return {**base, "accion": "BASELINE_GVA_DIRECTO", "estado_anterior": anterior}
+    if anterior.get("contenido_hash") == actual.get("contenido_hash"):
+        return {**base, "accion": "SIN_CAMBIOS_GVA_DIRECTO"}
+    return {
+        **base,
+        "accion": "CAMBIO_GVA_DIRECTO",
+        "estado_anterior": anterior,
+        "hash_anterior": anterior.get("contenido_hash"),
+        "hash_actual": actual.get("contenido_hash"),
+    }
 
 
 def _planificar(procesos: list[dict[str, Any]], resultados: dict[int, dict[str, Any]]) -> dict[str, Any]:
@@ -178,17 +226,28 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
                 resultados[int(proceso["id"])] = extraer_seguimientos_validos(html)
                 continue
 
-            # Las bolsas descubiertas directamente en sede.gva.es no tienen
-            # referencia estatal. De momento se incorporan al plan sin
-            # inventar una referencia; su seguimiento directo se implementa
-            # separadamente antes de habilitar persistencia.
-            resultados[int(proceso["id"])] = {
-                "validos": [],
-                "rechazados": [],
-                "fuente": "sede.gva.es",
-            }
+            # Las bolsas GVA directas se comparan por una instantánea estable
+            # de su ficha oficial, sin inventar referencia estatal.
+            resultados[int(proceso["id"])] = _estado_ficha_gva_directa(client, proceso)
 
-    plan = _planificar(procesos, resultados)
+    estatales = [p for p in procesos if p.get("referencia_estatal") is not None]
+    directas = [p for p in procesos if p.get("referencia_estatal") is None and p.get("id_emp") is not None]
+    plan = _planificar(
+        estatales,
+        {int(p["id"]): resultados[int(p["id"])] for p in estatales},
+    )
+    acciones_directas = [
+        _planificar_gva_directa(p, resultados[int(p["id"])])
+        for p in directas
+    ]
+    plan["acciones"].extend(acciones_directas)
+    plan["resumen"]["gva_directas"] = len(acciones_directas)
+    plan["resumen"]["gva_directas_baseline"] = sum(
+        a["accion"] == "BASELINE_GVA_DIRECTO" for a in acciones_directas
+    )
+    plan["resumen"]["gva_directas_cambios"] = sum(
+        a["accion"] == "CAMBIO_GVA_DIRECTO" for a in acciones_directas
+    )
     if not aplicar:
         return {"modo": "SOLO_REVISION", "escrituras_bd": False, **plan}
 
@@ -198,6 +257,10 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         _, fuente_dogv_id = _resolver_identidad_gva(cursor)
         for accion in plan["acciones"]:
+            if accion["accion"] in {"BASELINE_GVA_DIRECTO", "SIN_CAMBIOS_GVA_DIRECTO", "CAMBIO_GVA_DIRECTO"}:
+                # Fase actual: diagnóstico solamente. No escribir hasta validar
+                # el baseline y la semántica de cambios de la ficha directa.
+                continue
             if accion["accion"] == "SIN_CAMBIOS":
                 continue
             if accion["accion"] == "BASELINE":
