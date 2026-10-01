@@ -97,6 +97,31 @@ def ids_oportunidades_visibles() -> set[int]:
         return {int(row[0]) for row in cursor.fetchall()}
 
 
+def filtrar_nuevas_oportunidades_notificables(proceso_ids: Iterable[int]) -> set[int]:
+    """Excluye solo ADC no accionables del aviso general de alta.
+
+    Los ADC se mantienen visibles en Empleo. Esta función afecta únicamente a
+    la creación del evento NUEVA_OPORTUNIDAD.
+    """
+    ids = sorted({int(proceso_id) for proceso_id in proceso_ids})
+    if not ids:
+        return set()
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id
+            FROM procesos
+            WHERE id = ANY(%s)
+              AND NOT (
+                    tipo_proceso = 'Anuncio difícil cobertura (ADC)'
+                    AND COALESCE((datos_json->>'accionable')::boolean, FALSE) = FALSE
+                  )
+            """,
+            (ids,),
+        )
+        return {int(row[0]) for row in cursor.fetchall()}
+
+
 def registrar_nuevas_oportunidades(proceso_ids: Iterable[int]) -> list[int]:
     """Crea como máximo un evento NUEVA_OPORTUNIDAD por proceso.
 
@@ -134,11 +159,14 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
                 en.email,
                 e.proceso_id,
                 p.denominacion,
+                p.cuerpo_escala,
                 p.plazas,
                 p.sistema_selectivo,
                 p.fecha_convocatoria,
                 p.fecha_apertura,
                 p.fecha_cierre,
+                p.tipo_proceso,
+                p.datos_json,
                 o.nombre AS organismo,
                 o.provincia
             FROM empleo_envios_notificacion en
@@ -167,6 +195,8 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
         denominacion = str(pendiente["denominacion"])
         url = f"{public_app_url}/empleo/proceso/{proceso_id}"
 
+        datos_json = pendiente.get("datos_json") or {}
+        es_adc = pendiente.get("tipo_proceso") == "Anuncio difícil cobertura (ADC)"
         datos = [
             ("Organismo", pendiente["organismo"]),
             ("Provincia", pendiente["provincia"]),
@@ -176,6 +206,14 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
             ("Apertura del plazo", pendiente["fecha_apertura"]),
             ("Cierre del plazo", pendiente["fecha_cierre"]),
         ]
+        if es_adc:
+            bolsas = datos_json.get("bolsas_relacionadas") or []
+            datos.extend([
+                ("ADC", datos_json.get("numero_adc")),
+                ("Cuerpo", pendiente.get("cuerpo_escala")),
+                ("Etapa actual", datos_json.get("etapa_actual_gva")),
+                ("Bolsas relacionadas", ", ".join(str(x) for x in bolsas) if bolsas else None),
+            ])
         lineas = [
             f"{etiqueta}: {valor}"
             for etiqueta, valor in datos
@@ -183,6 +221,7 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
         ]
 
         asunto = f"Nueva oportunidad de empleo: {denominacion}"
+        url_oficial = datos_json.get("url_detalle") if es_adc else None
         texto = "\n".join(
             [
                 "Se ha publicado una nueva oportunidad de empleo.",
@@ -191,6 +230,7 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
                 *lineas,
                 "",
                 f"Ver convocatoria: {url}",
+                *([f"Acceso oficial GVA: {url_oficial}"] if url_oficial else []),
             ]
         )
         html_datos = "".join(
@@ -203,6 +243,7 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
             f"<p><strong>{escape(denominacion)}</strong></p>"
             f"<ul>{html_datos}</ul>"
             f'<p><a href="{escape(url)}">Ver convocatoria</a></p>'
+            + (f'<p><a href="{escape(str(url_oficial))}">Acceso oficial GVA</a></p>' if url_oficial else "")
         )
 
         try:

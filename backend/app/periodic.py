@@ -20,7 +20,8 @@ from .bop_alicante import importar_bop_alicante
 from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from .gva_estatal_service import importar_gva_estatal
 from .gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
-from .notificaciones_generales import enviar_envios_pendientes, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
+from .gva_adc import persistir_adc_gva
+from .notificaciones_generales import enviar_envios_pendientes, filtrar_nuevas_oportunidades_notificables, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
 from .clasificacion_auditoria import revisar_clasificacion_puestos
 
@@ -283,6 +284,14 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar),
     )
 
+    # Anuncios de difícil cobertura administrativos. La propia persistencia
+    # mantiene silenciosa la carga histórica y solo publica relaciones
+    # documentales cuando corresponde.
+    registrar(
+        "gva_adc",
+        lambda: persistir_adc_gva(aplicar=aplicar),
+    )
+
     # Se activa explícitamente tras validar la auditoría histórica. Procesa una
     # tanda pequeña, aislada del resto de fuentes, y nunca reescribe campos.
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
@@ -299,11 +308,13 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
     if aplicar:
         visibles_despues = ids_oportunidades_visibles()
         nuevos_visibles = visibles_despues - visibles_antes
-        eventos_creados = registrar_nuevas_oportunidades(nuevos_visibles)
+        nuevos_notificables = filtrar_nuevas_oportunidades_notificables(nuevos_visibles)
+        eventos_creados = registrar_nuevas_oportunidades(nuevos_notificables)
         envios_preparados = preparar_envios_eventos(eventos_creados)
         envios_enviados = enviar_envios_pendientes()
         resultado["notificaciones_generales"] = {
             "nuevas_oportunidades_visibles": len(nuevos_visibles),
+            "nuevas_oportunidades_notificables": len(nuevos_notificables),
             "eventos_creados": len(eventos_creados),
             "envios_preparados": envios_preparados,
             "envio": envios_enviados,
