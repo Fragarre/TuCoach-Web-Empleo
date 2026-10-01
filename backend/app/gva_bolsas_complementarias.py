@@ -87,11 +87,28 @@ def _descubrir_por_codigo(client, codigo: str) -> dict[int, str]:
     return encontrados
 
 
+def _campo_publico(texto: str, etiqueta: str, siguientes: tuple[str, ...]) -> str | None:
+    limites = "|".join(re.escape(x) for x in siguientes)
+    patron = rf"{re.escape(etiqueta)}\s*:?\s*(.+?)(?=\s+(?:{limites})\s*:|$)"
+    m = re.search(patron, texto, re.I)
+    return " ".join(m.group(1).split()) if m else None
+
+
 def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
     proceso = gva_clean.parsear_detalle(url, html, id_emp)
     soup = BeautifulSoup(html, "html.parser")
     texto = " ".join(soup.get_text(" ", strip=True).split())
     normalizado = _sin_acentos(texto)
+    etapa_actual = _campo_publico(
+        texto,
+        "Etapa actual",
+        ("Fase", "Información básica", "Convocatoria", "Prueba"),
+    )
+    fase = _campo_publico(
+        texto,
+        "Fase",
+        ("Información básica", "Convocatoria", "Prueba", "Plazo"),
+    )
     codigos = [
         codigo
         for codigo in CODIGOS_ADMIN_ESTRICTOS
@@ -110,6 +127,8 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
         **(proceso.get("datos_json") or {}),
         "fuente_descubrimiento": "sede.gva.es",
         "codigos_administrativos": codigos,
+        "etapa_actual_gva": etapa_actual,
+        "fase_gva": fase,
     }
     return proceso
 
@@ -226,6 +245,8 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
             "identificador_estable": proceso["identificador_estable"],
             "denominacion": proceso["denominacion"],
             "cuerpo_escala": proceso.get("cuerpo_escala"),
+            "etapa_actual_gva": proceso["datos_json"].get("etapa_actual_gva"),
+            "fase_gva": proceso["datos_json"].get("fase_gva"),
             "proceso_existente_id": existente.get("id") if existente else None,
             "identificador_existente": (
                 existente.get("identificador_estable") if existente else None
