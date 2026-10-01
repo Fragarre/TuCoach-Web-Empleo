@@ -361,7 +361,7 @@ def planificar_adc_gva() -> dict[str, Any]:
         with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT id, identificador_estable, tipo_proceso, es_oportunidad, datos_json
+                SELECT id, identificador_estable, denominacion, cuerpo_escala, grupo, plazas, fecha_apertura, fecha_cierre, tipo_proceso, es_oportunidad, datos_json
                 FROM procesos
                 WHERE identificador_estable = ANY(%s)
                    OR CASE
@@ -406,8 +406,27 @@ def planificar_adc_gva() -> dict[str, Any]:
             existentes_por_identificador.get(adc["identificador_estable"])
             or existentes_por_id_emp.get(id_emp)
         )
+        accion = "NUEVA"
+        if existente:
+            datos_previos = existente.get("datos_json") or {}
+            huella_previa = datos_previos.get("huella_novedad_adc")
+            huella_actual = _huella_novedad_adc(adc)
+            campos_cambian = any((
+                existente.get("denominacion") != adc["denominacion"],
+                existente.get("cuerpo_escala") != adc["cuerpo_escala"],
+                existente.get("grupo") != adc["grupo"],
+                existente.get("plazas") != adc["plazas"],
+                adc["fecha_apertura"] is not None and existente.get("fecha_apertura") != adc["fecha_apertura"],
+                adc["fecha_cierre"] is not None and existente.get("fecha_cierre") != adc["fecha_cierre"],
+                datos_previos.get("estado_plazo") != adc["estado_plazo"],
+                datos_previos.get("accionable") != adc["accionable"],
+                datos_previos.get("bolsas_relacionadas") != adc["bolsas_relacionadas"],
+                datos_previos.get("evidencia_relacion") != adc["evidencia_relacion"],
+                huella_previa != huella_actual,
+            ))
+            accion = "ACTUALIZAR" if campos_cambian else "SIN_CAMBIOS"
         acciones.append({
-            "accion": "ACTUALIZAR" if existente else "NUEVA",
+            "accion": accion,
             "proceso_id": int(existente["id"]) if existente else None,
             "identificador_estable": adc["identificador_estable"],
             "identificador_existente": existente["identificador_estable"] if existente else None,
@@ -431,6 +450,7 @@ def planificar_adc_gva() -> dict[str, Any]:
             "validos": len(validos),
             "nuevos": sum(x["accion"] == "NUEVA" for x in acciones),
             "actualizar": sum(x["accion"] == "ACTUALIZAR" for x in acciones),
+            "sin_cambios": sum(x["accion"] == "SIN_CAMBIOS" for x in acciones),
             "accionables": sum(bool(x["accionable"]) for x in acciones),
         },
         "acciones": acciones,
@@ -585,7 +605,10 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                 "evidencia_relacion": adc["evidencia_relacion"],
                 "documentos_pdf": adc["documentos_pdf"],
                 "fechas_publicacion": adc["fechas_publicacion"],
+                "huella_novedad_adc": _huella_novedad_adc(adc),
             }
+            if accion["accion"] == "SIN_CAMBIOS":
+                continue
             if accion["accion"] == "NUEVA":
                 cursor.execute(
                     """
