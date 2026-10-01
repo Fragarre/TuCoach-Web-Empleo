@@ -163,7 +163,19 @@ def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[st
                          ELSE FALSE
                        END
                     OR CASE
-                         WHEN COALESCE(datos_json->>'codigo_gva','') ~ '^[0-9]+
+                         WHEN COALESCE(datos_json->>'codigo_gva','') ~ '^[0-9]+$'
+                         THEN (datos_json->>'codigo_gva')::bigint = ANY(%s)
+                         ELSE FALSE
+                       END
+                    OR CASE
+                         WHEN COALESCE(datos_json->>'codigo_gva_resuelto','') ~ '^[0-9]+$'
+                         THEN (datos_json->>'codigo_gva_resuelto')::bigint = ANY(%s)
+                         ELSE FALSE
+                       END
+                  )
+            """,
+            (organismo["id"], identificadores, ids, ids, ids),
+        )
         filas = list(cursor.fetchall())
 
     salida: dict[int, dict[str, Any]] = {}
@@ -186,7 +198,6 @@ def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[st
             if numero in ids:
                 salida[numero] = dict(fila)
     return salida
-
 
 def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
     """Genera un plan NUEVA/YA_EXISTE sin realizar ninguna escritura."""
