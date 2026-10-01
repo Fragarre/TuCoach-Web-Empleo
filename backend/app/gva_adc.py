@@ -111,6 +111,33 @@ def _bolsas_explicitas(texto: str) -> list[str]:
     return sorted(halladas)
 
 
+def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
+    norm = _sin_acentos(texto)
+    m_etapa = re.search(r"Etapa actual\s*:\s*(.+?)\s+(?:Data publicaci|Fecha publicaci|Anunci|Anuncio|Termini|Plazo)", texto, re.I)
+    etapa = " ".join(m_etapa.group(1).split()) if m_etapa else None
+    publicaciones = []
+    for m in re.finditer(r"(?:Data|Fecha) publicaci[^:]*:\s*(\d{2}-\d{2}-\d{4})", texto, re.I):
+        publicaciones.append(m.group(1))
+    estado_plazo = "CERRADO" if ("termini tancat" in norm or "plazo cerrado" in norm) else (
+        "ABIERTO" if ("termini obert" in norm or "plazo abierto" in norm) else None
+    )
+    documentos = []
+    for a in soup.find_all("a", href=True):
+        href = str(a.get("href") or "")
+        if ".pdf" not in href.lower():
+            continue
+        documentos.append({
+            "texto": " ".join(a.get_text(" ", strip=True).split()),
+            "url": urljoin(gva_clean.GVA_BASE_URL, href),
+        })
+    return {
+        "etapa_actual": etapa,
+        "estado_plazo": estado_plazo,
+        "fechas_publicacion": list(dict.fromkeys(publicaciones)),
+        "documentos_pdf": documentos,
+    }
+
+
 def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
     proceso = gva_clean.parsear_detalle(url, html, id_emp)
     soup = BeautifulSoup(html, "html.parser")
