@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 
 from .database import get_connection
 from . import gva_clean
+from .gva_bolsas_complementarias import _clasificar_detalle
 from .gva_estatal_service import _get_gva_con_reintentos
 from .estado_proceso import clasificar_evento_terminal
 from .gva_estatal_persist import _resolver_identidad_gva
@@ -62,15 +63,21 @@ def _estado_ficha_gva_directa(client: httpx.Client, proceso: dict[str, Any]) -> 
     datos = proceso.get("datos_json") or {}
     url = str(datos.get("url_detalle") or f"{gva_clean.GVA_BASE_URL}/es/detall-ocupacio-publica?id_emp={id_emp}")
     respuesta = _get_gva_con_reintentos(client, url, intentos=1)
-    parsed = gva_clean.parsear_detalle(url, respuesta.text, id_emp)
+    parsed = _clasificar_detalle(id_emp, url, respuesta.text)
     pub = parsed.get("publicacion") or {}
+    metadatos = parsed.get("datos_json") or {}
+    fase = metadatos.get("fase_gva")
+    fase_normalizada = " ".join(str(fase or "").lower().split())
     return {
         "fuente": "sede.gva.es",
         "id_emp": id_emp,
         "url_detalle": url,
         "contenido_hash": pub.get("contenido_hash"),
         "denominacion": parsed.get("denominacion"),
-        "estado": parsed.get("estado"),
+        "estado_etapa": parsed.get("estado"),
+        "etapa_actual_gva": metadatos.get("etapa_actual_gva"),
+        "fase_gva": fase,
+        "bolsa_en_funcionamiento": fase_normalizada == "bolsa en funcionamiento",
         "fecha_apertura": str(parsed.get("fecha_apertura")) if parsed.get("fecha_apertura") else None,
         "fecha_cierre": str(parsed.get("fecha_cierre")) if parsed.get("fecha_cierre") else None,
     }
