@@ -217,6 +217,64 @@ def _insertar_publicacion(
     return int(fila["id"]) if fila else None
 
 
+def _guardar_estado_gva_directo(cursor, proceso_id: int, estado: dict[str, Any]) -> None:
+    cursor.execute(
+        """
+        UPDATE procesos
+        SET datos_json = COALESCE(datos_json, '{}'::jsonb) || %s,
+            updated_at = NOW()
+        WHERE id=%s
+        """,
+        (Jsonb({"seguimiento_gva_directo": estado}), proceso_id),
+    )
+    if cursor.rowcount != 1:
+        raise RuntimeError(f"No se pudo guardar seguimiento GVA directo {proceso_id}")
+
+
+def _publicar_cambio_gva_directo(cursor, *, fuente_dogv_id: int, accion: dict[str, Any]) -> int | None:
+    actual = accion["estado_actual"]
+    anterior = accion.get("estado_anterior") or {}
+    proceso_id = int(accion["proceso_id"])
+    id_emp = int(accion["id_emp"])
+    referencia = f"GVA:{id_emp}:FICHA:{actual['contenido_hash']}"
+    titulo = f"Actualización de bolsa GVA: {actual.get('etapa_actual_gva') or actual.get('denominacion') or id_emp}"
+    cursor.execute(
+        """
+        INSERT INTO publicaciones (
+            proceso_id, fuente_id, referencia, tipo, titulo, url, datos_json, detectada_at
+        ) VALUES (%s,%s,%s,'SEGUIMIENTO_OFICIAL',%s,%s,%s,NOW())
+        ON CONFLICT (fuente_id, referencia, url) DO NOTHING
+        RETURNING id
+        """,
+        (
+            proceso_id, fuente_dogv_id, referencia, titulo, actual["url_detalle"],
+            Jsonb({"origen": "GVA_DIRECTO", "id_emp": id_emp, "estado_anterior": anterior, "estado_actual": actual}),
+        ),
+    )
+    fila = cursor.fetchone()
+    if not fila:
+        return None
+    publicacion_id = int(fila["id"])
+    cursor.execute(
+        """
+        INSERT INTO cambios (
+            proceso_id, publicacion_id, tipo, campo, valor_anterior, valor_nuevo, resumen, significativo
+        ) VALUES (%s,%s,'ACTUALIZACION','etapa_actual',%s,%s,%s,TRUE)
+        """,
+        (
+            proceso_id, publicacion_id,
+            str(anterior.get("etapa_actual_gva") or anterior.get("contenido_hash") or ""),
+            str(actual.get("etapa_actual_gva") or actual.get("contenido_hash") or ""),
+            titulo,
+        ),
+    )
+    cursor.execute(
+        "UPDATE procesos SET ultima_publicacion_at=NOW(), updated_at=NOW() WHERE id=%s",
+        (proceso_id,),
+    )
+    return publicacion_id
+
+
 def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, Any]:
     """Seguimiento conservador de bolsas GVA mediante la ficha estatal.
 
@@ -264,9 +322,27 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         _, fuente_dogv_id = _resolver_identidad_gva(cursor)
         for accion in plan["acciones"]:
-            if accion["accion"] in {"BASELINE_GVA_DIRECTO", "SIN_CAMBIOS_GVA_DIRECTO", "CAMBIO_GVA_DIRECTO"}:
-                # Fase actual: diagnóstico solamente. No escribir hasta validar
-                # el baseline y la semántica de cambios de la ficha directa.
+            if accion["accion"] == "BASELINE_GVA_DIRECTO":
+                # Línea base silenciosa: evita notificar como novedad el estado
+                # que ya existía al incorporar por primera vez la bolsa.
+                _guardar_estado_gva_directo(
+                    cursor, int(accion["proceso_id"]), accion["estado_actual"]
+                )
+                baseline_creados += 1
+                continue
+            if accion["accion"] == "SIN_CAMBIOS_GVA_DIRECTO":
+                continue
+            if accion["accion"] == "CAMBIO_GVA_DIRECTO":
+                publicacion_id = _publicar_cambio_gva_directo(
+                    cursor,
+                    fuente_dogv_id=fuente_dogv_id,
+                    accion=accion,
+                )
+                _guardar_estado_gva_directo(
+                    cursor, int(accion["proceso_id"]), accion["estado_actual"]
+                )
+                if publicacion_id is not None:
+                    publicaciones_creadas += 1
                 continue
             if accion["accion"] == "SIN_CAMBIOS":
                 continue
