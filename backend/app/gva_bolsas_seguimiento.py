@@ -36,11 +36,18 @@ def _cargar_bolsas_activas() -> list[dict[str, Any]]:
     for fila in filas:
         if str(fila.get("estado") or "").strip().lower() in ESTADOS_TERMINALES:
             continue
-        ref = _referencia_estatal(fila.get("datos_json"))
-        if ref is None:
+        datos = fila.get("datos_json") or {}
+        ref = _referencia_estatal(datos)
+        id_emp = datos.get("id_emp") or datos.get("codigo_gva") or datos.get("codigo_gva_resuelto")
+        try:
+            id_emp = int(id_emp) if id_emp is not None else None
+        except (TypeError, ValueError):
+            id_emp = None
+        if ref is None and id_emp is None:
             continue
         item = dict(fila)
         item["referencia_estatal"] = ref
+        item["id_emp"] = id_emp
         salida.append(item)
     return salida
 
@@ -49,7 +56,8 @@ def _planificar(procesos: list[dict[str, Any]], resultados: dict[int, dict[str, 
     acciones: list[dict[str, Any]] = []
     for proceso in procesos:
         proceso_id = int(proceso["id"])
-        referencia = int(proceso["referencia_estatal"])
+        referencia = proceso.get("referencia_estatal")
+        id_emp = proceso.get("id_emp")
         extraido = resultados[proceso_id]
         datos = proceso.get("datos_json") or {}
         estado = datos.get("seguimiento_gva") if isinstance(datos.get("seguimiento_gva"), dict) else None
@@ -59,7 +67,8 @@ def _planificar(procesos: list[dict[str, Any]], resultados: dict[int, dict[str, 
             "proceso_id": proceso_id,
             "identificador_estable": proceso.get("identificador_estable"),
             "tipo_proceso": proceso.get("tipo_proceso"),
-            "referencia_estatal": referencia,
+            "referencia_estatal": int(referencia) if referencia is not None else None,
+            "id_emp": int(id_emp) if id_emp is not None else None,
             "rechazados": extraido.get("rechazados") or [],
         }
 
@@ -163,8 +172,21 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     resultados: dict[int, dict[str, Any]] = {}
     with nuevo_cliente() as client:
         for proceso in procesos:
-            html = _obtener_html(client, int(proceso["referencia_estatal"]))
-            resultados[int(proceso["id"])] = extraer_seguimientos_validos(html)
+            referencia = proceso.get("referencia_estatal")
+            if referencia is not None:
+                html = _obtener_html(client, int(referencia))
+                resultados[int(proceso["id"])] = extraer_seguimientos_validos(html)
+                continue
+
+            # Las bolsas descubiertas directamente en sede.gva.es no tienen
+            # referencia estatal. De momento se incorporan al plan sin
+            # inventar una referencia; su seguimiento directo se implementa
+            # separadamente antes de habilitar persistencia.
+            resultados[int(proceso["id"])] = {
+                "validos": [],
+                "rechazados": [],
+                "fuente": "sede.gva.es",
+            }
 
     plan = _planificar(procesos, resultados)
     if not aplicar:
@@ -179,6 +201,9 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
             if accion["accion"] == "SIN_CAMBIOS":
                 continue
             if accion["accion"] == "BASELINE":
+                if accion.get("referencia_estatal") is None:
+                    # No se escribe un baseline estatal falso para bolsas GVA directas.
+                    continue
                 _guardar_estado(
                     cursor,
                     int(accion["proceso_id"]),
