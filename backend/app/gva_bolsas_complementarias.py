@@ -132,13 +132,40 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
     else:
         categoria_gva = "OTRO"
 
+    # El código por sí solo no basta: la búsqueda GVA también devuelve
+    # especialidades/APT y bolsas sectoriales que contienen A1-01/A2-01/C1-01/C2-01.
+    # Este complemento se limita a los cuerpos administrativos generales.
+    especialidad = next(
+        (
+            motivo
+            for patron, motivo in (
+                (r"\\bAPT[- ]", "especialidad_apt"),
+                (r"\\bC1-07\\b", "especialidad_c1_07"),
+                (r"\\bC2-01-02\\b", "especialidad_c2_01_02"),
+                (r"\\bC2-01-EDU\\b|\\bC1-01-EDU\\b", "sector_educacion"),
+                (r"protocolo", "especialidad_protocolo"),
+                (r"orientador(?:a)? laboral", "especialidad_orientacion_laboral"),
+                (r"comunicacion y relaciones informativas", "especialidad_comunicacion"),
+                (r"fondos europeos", "especialidad_fondos_europeos"),
+                (r"agentes tributarios", "especialidad_agentes_tributarios"),
+                (r"asistencia al contribuyente", "especialidad_tributaria"),
+                (r"discapacidad intelectual", "turno_discapacidad_intelectual"),
+            )
+            if re.search(patron, denominacion_norm, re.I)
+        ),
+        None,
+    )
+
     proceso["cuerpo_escala"] = codigos[0] if len(codigos) == 1 else None
-    proceso["ambito_administrativo"] = "SI" if codigos else "NO"
+    proceso["ambito_administrativo"] = "SI" if codigos and especialidad is None else "NO"
     proceso["es_oportunidad"] = bool(
         codigos
         and categoria_gva == "BOLSA"
         and exclusion is None
+        and especialidad is None
     )
+    if exclusion is None and especialidad is not None:
+        exclusion = especialidad
     proceso["motivo_exclusion"] = exclusion
     proceso["datos_json"] = {
         **(proceso.get("datos_json") or {}),
@@ -147,6 +174,7 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
         "etapa_actual_gva": etapa_actual,
         "fase_gva": fase,
         "categoria_gva": categoria_gva,
+        "especialidad_excluida": especialidad,
     }
     return proceso
 
