@@ -328,6 +328,7 @@ def planificar_adc_gva() -> dict[str, Any]:
     ids_emp = [int(x["id_emp"]) for x in validos]
     existentes_por_identificador: dict[str, dict[str, Any]] = {}
     existentes_por_id_emp: dict[int, dict[str, Any]] = {}
+
     if identificadores:
         with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -336,7 +337,48 @@ def planificar_adc_gva() -> dict[str, Any]:
                 FROM procesos
                 WHERE identificador_estable = ANY(%s)
                    OR CASE
-                        WHEN COALESCE(datos_json->>'id_emp','') ~ '^[0-9]+        acciones.append({
+                        WHEN COALESCE(datos_json->>'id_emp','') ~ '^[0-9]+$'
+                        THEN (datos_json->>'id_emp')::bigint = ANY(%s)
+                        ELSE FALSE
+                      END
+                   OR CASE
+                        WHEN identificador_estable ~ '^GVA:[0-9]+$'
+                        THEN substring(identificador_estable from 5)::bigint = ANY(%s)
+                        ELSE FALSE
+                      END
+                """,
+                (identificadores, ids_emp, ids_emp),
+            )
+            for fila in cursor.fetchall():
+                item = dict(fila)
+                existentes_por_identificador[str(item["identificador_estable"])] = item
+                datos = item.get("datos_json") or {}
+                candidatos_id = [datos.get("id_emp")]
+                m = re.fullmatch(r"GVA:(\d+)", str(item.get("identificador_estable") or ""))
+                if m:
+                    candidatos_id.append(m.group(1))
+                for valor in candidatos_id:
+                    try:
+                        numero = int(valor)
+                    except (TypeError, ValueError):
+                        continue
+                    if numero not in ids_emp:
+                        continue
+                    previo = existentes_por_id_emp.get(numero)
+                    if previo is not None and int(previo["id"]) != int(item["id"]):
+                        raise RuntimeError(
+                            f"ADC {numero}: más de un proceso existente coincide con el mismo id_emp"
+                        )
+                    existentes_por_id_emp[numero] = item
+
+    acciones = []
+    for adc in validos:
+        id_emp = int(adc["id_emp"])
+        existente = (
+            existentes_por_identificador.get(adc["identificador_estable"])
+            or existentes_por_id_emp.get(id_emp)
+        )
+        acciones.append({
             "accion": "ACTUALIZAR" if existente else "NUEVA",
             "proceso_id": int(existente["id"]) if existente else None,
             "identificador_estable": adc["identificador_estable"],
@@ -352,6 +394,7 @@ def planificar_adc_gva() -> dict[str, Any]:
             "bolsas_relacionadas": adc["bolsas_relacionadas"],
             "registro": adc,
         })
+
     return {
         "modo": "SOLO_REVISION",
         "escrituras_bd": False,
@@ -365,7 +408,6 @@ def planificar_adc_gva() -> dict[str, Any]:
         "acciones": acciones,
         "excluidos": inventario["excluidos"],
     }
-
 
 def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
     """Persiste ADC como oportunidades; no genera notificaciones."""
