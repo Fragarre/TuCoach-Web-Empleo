@@ -11,6 +11,7 @@ bolsas.
 import io
 import re
 import unicodedata
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -172,6 +173,28 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     }
 
 
+def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, estado_plazo: str | None) -> dict[str, Any]:
+    """Determina si el ADC admite actuación del usuario en la fecha de consulta."""
+    hoy = date.today()
+    def convertir(valor: str | None) -> date | None:
+        if not valor:
+            return None
+        try:
+            return datetime.strptime(valor, "%d-%m-%Y").date()
+        except ValueError:
+            return None
+
+    apertura = convertir(fecha_apertura)
+    cierre = convertir(fecha_cierre)
+    if estado_plazo == "CERRADO" or (cierre is not None and cierre < hoy):
+        return {"accionable": False, "motivo_accionabilidad": "PLAZO_CERRADO"}
+    if apertura is not None and apertura > hoy:
+        return {"accionable": False, "motivo_accionabilidad": "PLAZO_PENDIENTE"}
+    if estado_plazo == "ABIERTO" or (apertura is not None and cierre is not None and apertura <= hoy <= cierre):
+        return {"accionable": True, "motivo_accionabilidad": "PLAZO_ABIERTO"}
+    return {"accionable": False, "motivo_accionabilidad": "PLAZO_NO_ACREDITADO"}
+
+
 def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
     proceso = gva_clean.parsear_detalle(url, html, id_emp)
     soup = BeautifulSoup(html, "html.parser")
@@ -197,6 +220,9 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
     etapas = _datos_etapas(soup, texto)
     bolsas_pdf = _bolsas_documento_pdf(client, etapas["documentos_pdf"])
     bolsas = sorted(set(bolsas_ficha) | set(bolsas_pdf))
+    fecha_apertura = proceso.get("fecha_apertura") or apertura
+    fecha_cierre = proceso.get("fecha_cierre") or cierre
+    accion = _estado_accionable(fecha_apertura, fecha_cierre, etapas["estado_plazo"])
 
     return {
         "id_emp": id_emp,
@@ -206,8 +232,10 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
         "cuerpo_escala": codigos[0] if len(codigos) == 1 else None,
         "grupo": proceso.get("grupo"),
         "plazas": proceso.get("plazas") or _plazas(texto),
-        "fecha_apertura": proceso.get("fecha_apertura") or apertura,
-        "fecha_cierre": proceso.get("fecha_cierre") or cierre,
+        "fecha_apertura": fecha_apertura,
+        "fecha_cierre": fecha_cierre,
+        "accionable": accion["accionable"],
+        "motivo_accionabilidad": accion["motivo_accionabilidad"],
         "etapa_actual_gva": etapas["etapa_actual"],
         "estado_plazo": etapas["estado_plazo"],
         "fechas_publicacion": etapas["fechas_publicacion"],
