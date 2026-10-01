@@ -159,6 +159,7 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
                 en.email,
                 e.proceso_id,
                 p.denominacion,
+                p.cuerpo_escala,
                 p.plazas,
                 p.sistema_selectivo,
                 p.fecha_convocatoria,
@@ -209,6 +210,7 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
             bolsas = datos_json.get("bolsas_relacionadas") or []
             datos.extend([
                 ("ADC", datos_json.get("numero_adc")),
+                ("Cuerpo", pendiente.get("cuerpo_escala")),
                 ("Etapa actual", datos_json.get("etapa_actual_gva")),
                 ("Bolsas relacionadas", ", ".join(str(x) for x in bolsas) if bolsas else None),
             ])
