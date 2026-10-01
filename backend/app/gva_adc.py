@@ -494,39 +494,12 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
     ambiguas: dict[str, list[int]] = {}
     no_resueltas: list[str] = []
 
-    cursor.execute(
-        """
-        SELECT id, denominacion, datos_json
-        FROM procesos
-        WHERE es_oportunidad=TRUE
-          AND ambito_administrativo='SI'
-          AND tipo_proceso='Bolsa de trabajo'
-        ORDER BY id
-        """
-    )
-    bolsas = list(cursor.fetchall())
-
-    def referencias_bolsa(fila: dict[str, Any]) -> set[str]:
-        valores: set[str] = set()
-        denominacion = str(fila.get("denominacion") or "")
-        datos = fila.get("datos_json") or {}
-        for clave in ("numero_bolsa", "numero_bolsa_gva", "control", "control_bolsa"):
-            valor = _normalizar_ref_bolsa(str(datos.get(clave) or ""))
-            if valor:
-                valores.add(valor)
-        # Las bolsas GVA administrativas se denominan normalmente con control
-        # 435-B / 913-L, pero las legacy pueden tener denominación genérica.
-        for m in re.finditer(r"(?<!\\d)(\\d{2,4})-([BL])\\b", denominacion, re.I):
-            valores.add(f"{m.group(1)}-{m.group(2).upper()}")
-            valores.add(m.group(1))
-        return valores
-
-    indices = [(fila, referencias_bolsa(fila)) for fila in bolsas]
-
     for referencia in referencias:
         ref = _normalizar_ref_bolsa(referencia)
         if not ref:
             continue
+        # Referencias del tipo 500/22 son convocatorias/bolsas externas y no
+        # se equiparan a un número de bolsa GVA sin evidencia adicional.
         if "/" in ref:
             no_resueltas.append(ref)
             continue
@@ -534,15 +507,25 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
         if not m:
             no_resueltas.append(ref)
             continue
+
         numero, sufijo = m.groups()
-        buscadas = {numero}
+        patron = rf"(^|[^0-9]){re.escape(numero)}-[BL]([^0-9]|$)"
         if sufijo:
-            buscadas.add(f"{numero}-{sufijo}")
-            buscadas.add(f"{numero}{sufijo}")
-        candidatos = [
-            fila for fila, refs in indices
-            if any(_normalizar_ref_bolsa(valor) in {_normalizar_ref_bolsa(x) for x in buscadas} for valor in refs)
-        ]
+            patron = rf"(^|[^0-9]){re.escape(numero)}-{sufijo}([^0-9]|$)"
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM procesos
+            WHERE es_oportunidad=TRUE
+              AND ambito_administrativo='SI'
+              AND tipo_proceso='Bolsa de trabajo'
+              AND denominacion ~* %s
+            ORDER BY id
+            """,
+            (patron,),
+        )
+        candidatos = list(cursor.fetchall())
         if len(candidatos) == 1:
             resueltas[ref] = int(candidatos[0]["id"])
         elif len(candidatos) > 1:
