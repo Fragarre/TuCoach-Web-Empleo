@@ -36,14 +36,15 @@ def _cargar_procesos_activos() -> list[dict[str, Any]]:
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
             """
-            SELECT id, identificador_estable, denominacion, tipo_proceso,
-                   fecha_convocatoria, fecha_apertura, fecha_cierre,
-                   estado, datos_json
-            FROM procesos
-            WHERE organismo_id=1
-              AND es_oportunidad=TRUE
-              AND ambito_administrativo='SI'
-            ORDER BY id
+            SELECT p.id, p.identificador_estable, p.denominacion, p.tipo_proceso,
+                   p.fecha_convocatoria, p.fecha_apertura, p.fecha_cierre,
+                   p.estado, p.datos_json
+            FROM procesos p
+            JOIN organismos o ON o.id = p.organismo_id
+            WHERE LOWER(TRIM(o.nombre)) = 'generalitat valenciana'
+              AND p.es_oportunidad=TRUE
+              AND p.ambito_administrativo='SI'
+            ORDER BY p.id
             """
         )
         filas = list(cursor.fetchall())
