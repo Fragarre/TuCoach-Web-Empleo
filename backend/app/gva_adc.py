@@ -580,6 +580,57 @@ def _publicacion_adc_en_bolsa(
     return True
 
 
+def _publicacion_etapa_adc(
+    cursor,
+    *,
+    proceso_id: int,
+    fuente_id: int,
+    adc: dict[str, Any],
+    huella: str,
+) -> bool:
+    """Registra una etapa nueva del propio ADC para su seguimiento."""
+    import hashlib
+
+    digest = hashlib.sha256(huella.encode("utf-8")).hexdigest()[:16]
+    referencia = f"ADC_ETAPA:{adc['id_emp']}:{digest}"
+    cursor.execute(
+        """
+        SELECT id
+        FROM publicaciones
+        WHERE proceso_id=%s AND fuente_id=%s AND referencia=%s
+        LIMIT 1
+        """,
+        (proceso_id, fuente_id, referencia),
+    )
+    if cursor.fetchone() is not None:
+        return False
+    fechas = adc.get("fechas_publicacion") or []
+    cursor.execute(
+        """
+        INSERT INTO publicaciones (
+            proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,
+            datos_json,detectada_at
+        ) VALUES (%s,%s,%s,'ADC_ETAPA',%s,%s,%s,%s,NOW())
+        """,
+        (
+            proceso_id,
+            fuente_id,
+            referencia,
+            f"ADC {adc.get('numero_adc') or adc['id_emp']}: "
+            f"{adc.get('etapa_actual_gva') or 'novedad'}",
+            fechas[0] if fechas else None,
+            adc["url"],
+            Jsonb({
+                "adc_id_emp": adc["id_emp"],
+                "numero_adc": adc.get("numero_adc"),
+                "etapa_actual_gva": adc.get("etapa_actual_gva"),
+                "huella_novedad": huella,
+            }),
+        ),
+    )
+    return True
+
+
 def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
     """Persiste ADC como oportunidades; no genera notificaciones."""
     plan = planificar_adc_gva()
@@ -589,6 +640,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
     insertados = 0
     actualizados = 0
     publicaciones_bolsas = 0
+    publicaciones_adc = 0
     relaciones_ambiguas: dict[str, list[int]] = {}
     relaciones_no_resueltas: set[str] = set()
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
@@ -660,6 +712,18 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                 )
                 actualizados += cursor.rowcount
 
+            # Una etapa posterior de un ADC ya normalizado es una novedad del
+            # propio proceso. El baseline (incluido legacy) permanece silencioso.
+            if accion["accion"] == "ACTUALIZAR" and not accion.get("baseline_adc", False):
+                if _publicacion_etapa_adc(
+                    cursor,
+                    proceso_id=int(accion["proceso_id"]),
+                    fuente_id=fuente_id,
+                    adc=adc,
+                    huella=_huella_novedad_adc(adc),
+                ):
+                    publicaciones_adc += 1
+
             relaciones = _resolver_bolsas_relacionadas(cursor, adc["bolsas_relacionadas"])
             relaciones_ambiguas.update(relaciones["ambiguas"])
             relaciones_no_resueltas.update(relaciones["no_resueltas"])
@@ -688,6 +752,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
         "notificaciones": False,
         "insertados": insertados,
         "actualizados": actualizados,
+        "publicaciones_adc": publicaciones_adc,
         "publicaciones_bolsas": publicaciones_bolsas,
         "relaciones_ambiguas": relaciones_ambiguas,
         "relaciones_no_resueltas": sorted(relaciones_no_resueltas),
