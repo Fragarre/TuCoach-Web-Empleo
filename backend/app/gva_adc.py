@@ -516,7 +516,7 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
                 valores.add(valor)
         # Las bolsas GVA administrativas se denominan normalmente con control
         # 435-B / 913-L, pero las legacy pueden tener denominación genérica.
-        for m in re.finditer(r"\b(\d{2,4})(?:-?([BL]))\b", denominacion, re.I):
+        for m in re.finditer(r"(?<!\\d)(\\d{2,4})-([BL])\\b", denominacion, re.I):
             valores.add(f"{m.group(1)}-{m.group(2).upper()}")
             valores.add(m.group(1))
         return valores
