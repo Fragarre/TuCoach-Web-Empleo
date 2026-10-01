@@ -133,9 +133,7 @@ def _bolsas_explicitas(denominacion: str) -> list[str]:
 def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
     """Extrae bolsas solo cuando el PDF oficial contiene una lista explícita."""
     halladas: set[str] = set()
-    patron_lista = re.compile(r"\b(?:bolsas|borses)\s*[:.]?\s*([^\n]{1,240})", re.I)
-    patron_ref = re.compile(r"\b\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\b", re.I)
-    for documento in documentos:
+    # La lista oficial puede continuar en líneas siguientes del PDF. El bloque\n    # admite únicamente referencias y separadores; se detiene al empezar texto.\n    patron_lista = re.compile(\n        r"\\b(?:bolsas|borses)\\s*[:.]?\\s*"\n        r"((?:\\d{2,4}(?:/\\d{2,4})?(?:[- ]?[bl])?\\s*[,.;]?\\s*)+)",\n        re.I,\n    )\n    patron_ref = re.compile(r"\\b\\d{2,4}(?:/\\d{2,4})?(?:[- ]?[bl])?\\b", re.I)\n    for documento in documentos:
         url = documento.get("url")
         if not url:
             continue
