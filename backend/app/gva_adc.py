@@ -706,6 +706,10 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                     SET denominacion=%s,
                         cuerpo_escala=%s,
                         grupo=%s,
+                        identificador_estable=%s,
+                        codigo_externo=%s,
+                        organismo_id=%s,
+                        fuente_principal_id=%s,
                         tipo_proceso='Anuncio difícil cobertura (ADC)',
                         plazas=%s,
                         estado='EN_CURSO',
@@ -718,8 +722,9 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                     WHERE id=%s AND identificador_estable=%s
                     """,
                     (
-                        adc["denominacion"],adc["cuerpo_escala"],adc["grupo"],adc["plazas"],
-                        adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
+                        adc["denominacion"],adc["cuerpo_escala"],adc["grupo"],
+                        adc["identificador_estable"],str(adc["id_emp"]),organismo_id,fuente_id,
+                        adc["plazas"],adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
                         accion["proceso_id"],accion["identificador_existente"],
                     ),
                 )
