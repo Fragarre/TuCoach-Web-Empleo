@@ -97,17 +97,22 @@ def _fecha(texto: str, etiqueta: str) -> str | None:
 
 
 def _plazo_adc(soup: BeautifulSoup, texto: str) -> dict[str, str | None]:
-    """Extrae el plazo de la etapa inicial sin confundir publicaciones posteriores."""
+    """Extrae únicamente intervalos asociados explícitamente a Plazo/Termini."""
     texto_lineas = "\n".join(soup.stripped_strings)
-    patrones = (
-        r"(?:Plazo|Termini)(?: de presentaci[oó]n| de presentacio| de la etapa actual)?\s*:?[\s\n]*(?:Desde|Des de)?\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})\s*(?:hasta|fins(?:\s+al)?|a)\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})",
-        r"(?:Desde|Des de)\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})\s*(?:hasta|fins(?:\s+al)?|a)\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})",
+    patron = (
+        r"(?:Plazo|Termini)(?:\s+de\s+(?:presentaci[oó]n|presentacio|la etapa actual))?"
+        r"\s*:?\s*(?:Desde|Des de)?\s*(?:el\s+)?"
+        r"(\d{2}[-/]\d{2}[-/]\d{4})\s*"
+        r"(?:hasta|fins(?:\s+al)?|a)\s*(?:el\s+)?"
+        r"(\d{2}[-/]\d{2}[-/]\d{4})"
     )
-    for patron in patrones:
-        m = re.search(patron, texto_lineas, re.I)
-        if m:
-            return {"apertura": m.group(1).replace("/", "-"), "cierre": m.group(2).replace("/", "-")}
-    return {"apertura": None, "cierre": None}
+    m = re.search(patron, texto_lineas, re.I)
+    if not m:
+        return {"apertura": None, "cierre": None}
+    return {
+        "apertura": m.group(1).replace("/", "-"),
+        "cierre": m.group(2).replace("/", "-"),
+    }
 
 def _plazas(texto: str) -> int | None:
     m = re.search(r"(?:Numero|Número) de plazas totales\s*:?[ \t]*(\d+)", texto, re.I)
@@ -159,22 +164,40 @@ def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]
 
 def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     norm = _sin_acentos(texto)
-    m_etapa = re.search(r"Etapa actual\s*:\s*(.+?)\s+(?:Data publicaci|Fecha publicaci|Anunci|Anuncio|Termini|Plazo)", texto, re.I)
+    texto_lineas = "\n".join(soup.stripped_strings)
+    # La etapa termina en una etiqueta estructural; no usamos "Anuncio", porque
+    # puede formar parte del propio nombre de la etapa.
+    m_etapa = re.search(
+        r"Etapa actual\s*:\s*(.+?)"
+        r"(?=\s*(?:Data publicaci|Fecha publicaci|Termini|Plazo|Documents?|Documentos?|"
+        r"C[oó]digo SIA|Codi SIA|Convocatoria)\b)",
+        texto_lineas,
+        re.I | re.S,
+    )
     etapa = " ".join(m_etapa.group(1).split()) if m_etapa else None
     publicaciones = []
-    for m in re.finditer(r"(?:Data|Fecha) publicaci[^:]*:\s*(\d{2}-\d{2}-\d{4})", texto, re.I):
-        publicaciones.append(m.group(1))
+    for m in re.finditer(
+        r"(?:Data|Fecha)\s+publicaci[^:]*:\s*(\d{2}[-/]\d{2}[-/]\d{4})",
+        texto_lineas,
+        re.I,
+    ):
+        publicaciones.append(m.group(1).replace("/", "-"))
     estado_plazo = "CERRADO" if ("termini tancat" in norm or "plazo cerrado" in norm) else (
         "ABIERTO" if ("termini obert" in norm or "plazo abierto" in norm) else None
     )
     documentos = []
-    for a in soup.find_all("a", href=True):
-        href = str(a.get("href") or "")
+    vistos: set[str] = set()
+    for enlace in soup.find_all("a", href=True):
+        href = str(enlace.get("href") or "")
         if ".pdf" not in href.lower():
             continue
+        url_pdf = urljoin(gva_clean.GVA_BASE_URL, href)
+        if url_pdf in vistos:
+            continue
+        vistos.add(url_pdf)
         documentos.append({
-            "texto": " ".join(a.get_text(" ", strip=True).split()),
-            "url": urljoin(gva_clean.GVA_BASE_URL, href),
+            "texto": " ".join(enlace.get_text(" ", strip=True).split()),
+            "url": url_pdf,
         })
     return {
         "etapa_actual": etapa,
@@ -182,7 +205,6 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
         "fechas_publicacion": list(dict.fromkeys(publicaciones)),
         "documentos_pdf": documentos,
     }
-
 
 def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, estado_plazo: str | None) -> dict[str, Any]:
     """Determina si el ADC admite actuación del usuario en la fecha de consulta."""
