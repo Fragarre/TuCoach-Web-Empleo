@@ -26,13 +26,14 @@ def _cargar_bolsas_activas() -> list[dict[str, Any]]:
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
             """
-            SELECT id, identificador_estable, denominacion, tipo_proceso, estado, datos_json
-            FROM procesos
-            WHERE organismo_id=1
-              AND es_oportunidad=TRUE
-              AND ambito_administrativo='SI'
-              AND LOWER(COALESCE(tipo_proceso,'')) LIKE '%bolsa%'
-            ORDER BY id
+            SELECT p.id, p.identificador_estable, p.denominacion, p.tipo_proceso, p.estado, p.datos_json
+            FROM procesos p
+            JOIN organismos o ON o.id = p.organismo_id
+            WHERE LOWER(TRIM(o.nombre)) = 'generalitat valenciana'
+              AND p.es_oportunidad=TRUE
+              AND p.ambito_administrativo='SI'
+              AND LOWER(COALESCE(p.tipo_proceso,'')) LIKE '%bolsa%'
+            ORDER BY p.id
             """
         )
         filas = list(cursor.fetchall())
@@ -98,10 +99,32 @@ def _planificar_gva_directa(proceso: dict[str, Any], actual: dict[str, Any]) -> 
         return {**base, "accion": "BASELINE_GVA_DIRECTO", "estado_anterior": anterior}
     if anterior.get("contenido_hash") == actual.get("contenido_hash"):
         return {**base, "accion": "SIN_CAMBIOS_GVA_DIRECTO"}
+
+    # El hash cubre la página completa y puede variar por ruido de presentación.
+    # Solo una variación en campos funcionales de la bolsa es notificable.
+    campos_relevantes = (
+        "etapa_actual_gva",
+        "fase_gva",
+        "bolsa_en_funcionamiento",
+        "fecha_apertura",
+        "fecha_cierre",
+    )
+    cambios_relevantes = {
+        campo: {"anterior": anterior.get(campo), "actual": actual.get(campo)}
+        for campo in campos_relevantes
+        if anterior.get(campo) != actual.get(campo)
+    }
+    if not cambios_relevantes:
+        return {
+            **base,
+            "accion": "ACTUALIZAR_BASELINE_GVA_DIRECTO",
+            "estado_anterior": anterior,
+        }
     return {
         **base,
         "accion": "CAMBIO_GVA_DIRECTO",
         "estado_anterior": anterior,
+        "cambios_relevantes": cambios_relevantes,
         "hash_anterior": anterior.get("contenido_hash"),
         "hash_actual": actual.get("contenido_hash"),
     }
@@ -313,6 +336,9 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     plan["resumen"]["gva_directas_cambios"] = sum(
         a["accion"] == "CAMBIO_GVA_DIRECTO" for a in acciones_directas
     )
+    plan["resumen"]["gva_directas_ruido_actualizado"] = sum(
+        a["accion"] == "ACTUALIZAR_BASELINE_GVA_DIRECTO" for a in acciones_directas
+    )
     if not aplicar:
         return {"modo": "SOLO_REVISION", "escrituras_bd": False, **plan}
 
@@ -331,6 +357,11 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
                 baseline_creados += 1
                 continue
             if accion["accion"] == "SIN_CAMBIOS_GVA_DIRECTO":
+                continue
+            if accion["accion"] == "ACTUALIZAR_BASELINE_GVA_DIRECTO":
+                _guardar_estado_gva_directo(
+                    cursor, int(accion["proceso_id"]), accion["estado_actual"]
+                )
                 continue
             if accion["accion"] == "CAMBIO_GVA_DIRECTO":
                 publicacion_id = _publicar_cambio_gva_directo(
