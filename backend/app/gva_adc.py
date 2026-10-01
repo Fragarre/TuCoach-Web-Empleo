@@ -91,9 +91,24 @@ def _descubrir_por_codigo(client, codigo: str) -> dict[int, str]:
     return encontrados
 
 
+def _fecha_iso(valor: Any) -> str | None:
+    """Normaliza fechas GVA a ISO YYYY-MM-DD para PostgreSQL y JSON."""
+    if valor is None:
+        return None
+    if isinstance(valor, (date, datetime)):
+        return valor.date().isoformat() if isinstance(valor, datetime) else valor.isoformat()
+    texto = str(valor).strip()
+    for formato in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(texto, formato).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 def _fecha(texto: str, etiqueta: str) -> str | None:
     m = re.search(rf"{re.escape(etiqueta)}\s*:?[ \t]*(\d{{2}}[-/]\d{{2}}[-/]\d{{4}})", texto, re.I)
-    return m.group(1).replace("/", "-") if m else None
+    return _fecha_iso(m.group(1)) if m else None
 
 
 def _plazo_adc(soup: BeautifulSoup, texto: str) -> dict[str, str | None]:
@@ -110,8 +125,8 @@ def _plazo_adc(soup: BeautifulSoup, texto: str) -> dict[str, str | None]:
     if not m:
         return {"apertura": None, "cierre": None}
     return {
-        "apertura": m.group(1).replace("/", "-"),
-        "cierre": m.group(2).replace("/", "-"),
+        "apertura": _fecha_iso(m.group(1)),
+        "cierre": _fecha_iso(m.group(2)),
     }
 
 def _plazas(texto: str) -> int | None:
@@ -181,7 +196,9 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
         texto_lineas,
         re.I,
     ):
-        publicaciones.append(m.group(1).replace("/", "-"))
+        fecha_publicacion = _fecha_iso(m.group(1))
+        if fecha_publicacion:
+            publicaciones.append(fecha_publicacion)
     estado_plazo = "CERRADO" if ("termini tancat" in norm or "plazo cerrado" in norm) else (
         "ABIERTO" if ("termini obert" in norm or "plazo abierto" in norm) else None
     )
@@ -209,13 +226,9 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
 def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, estado_plazo: str | None) -> dict[str, Any]:
     """Determina si el ADC admite actuación del usuario en la fecha de consulta."""
     hoy = date.today()
-    def convertir(valor: str | None) -> date | None:
-        if not valor:
-            return None
-        try:
-            return datetime.strptime(valor, "%d-%m-%Y").date()
-        except ValueError:
-            return None
+    def convertir(valor: Any) -> date | None:
+        iso = _fecha_iso(valor)
+        return date.fromisoformat(iso) if iso else None
 
     apertura = convertir(fecha_apertura)
     cierre = convertir(fecha_cierre)
@@ -253,8 +266,8 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
     etapas = _datos_etapas(soup, texto)
     bolsas_pdf = _bolsas_documento_pdf(client, etapas["documentos_pdf"])
     bolsas = sorted(set(bolsas_ficha) | set(bolsas_pdf))
-    fecha_apertura = proceso.get("fecha_apertura") or apertura
-    fecha_cierre = proceso.get("fecha_cierre") or cierre
+    fecha_apertura = _fecha_iso(proceso.get("fecha_apertura")) or apertura
+    fecha_cierre = _fecha_iso(proceso.get("fecha_cierre")) or cierre
     accion = _estado_accionable(fecha_apertura, fecha_cierre, etapas["estado_plazo"])
 
     return {
