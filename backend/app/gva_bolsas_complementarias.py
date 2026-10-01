@@ -117,9 +117,28 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
         None,
     )
     es_bolsa = proceso.get("tipo_proceso") == "Bolsa de trabajo"
+    denominacion_norm = _sin_acentos(str(proceso.get("denominacion") or ""))
+    es_cesion = "cesion de datos" in denominacion_norm
+    es_adc = (
+        "anuncio dificil cobertura" in normalizado
+        or "dificil cobertura" in denominacion_norm
+    )
+    if es_adc:
+        categoria_gva = "ADC"
+    elif es_cesion:
+        categoria_gva = "CESION_DATOS"
+    elif es_bolsa:
+        categoria_gva = "BOLSA"
+    else:
+        categoria_gva = "OTRO"
+
     proceso["cuerpo_escala"] = codigos[0] if len(codigos) == 1 else None
     proceso["ambito_administrativo"] = "SI" if codigos else "NO"
-    proceso["es_oportunidad"] = bool(codigos and es_bolsa and exclusion is None)
+    proceso["es_oportunidad"] = bool(
+        codigos
+        and categoria_gva == "BOLSA"
+        and exclusion is None
+    )
     proceso["motivo_exclusion"] = exclusion
     proceso["datos_json"] = {
         **(proceso.get("datos_json") or {}),
@@ -127,6 +146,7 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
         "codigos_administrativos": codigos,
         "etapa_actual_gva": etapa_actual,
         "fase_gva": fase,
+        "categoria_gva": categoria_gva,
     }
     return proceso
 
@@ -256,6 +276,7 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
             "cuerpo_escala": proceso.get("cuerpo_escala"),
             "etapa_actual_gva": proceso["datos_json"].get("etapa_actual_gva"),
             "fase_gva": proceso["datos_json"].get("fase_gva"),
+            "categoria_gva": proceso["datos_json"].get("categoria_gva"),
             "proceso_existente_id": existente.get("id") if existente else None,
             "identificador_existente": (
                 existente.get("identificador_estable") if existente else None
