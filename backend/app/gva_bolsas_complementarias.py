@@ -100,7 +100,13 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     texto = " ".join(soup.get_text(" ", strip=True).split())
     normalizado = _sin_acentos(texto)
-    m_fase = re.search(r"\bFase\s*:?[ ]*(?P<fase>.+?)\s+Plazo\b", texto, re.I)
+    # La ficha antigua puede no mostrar "Plazo" tras Fase; acotamos también
+    # por los siguientes bloques estructurales para no absorber todo el historial.
+    m_fase = re.search(
+        r"\bFase\s*:?\s*(?P<fase>.+?)(?=\s+(?:Plazo|Publicaci[oó]n Web|Forma de presentaci[oó]n|Enlaces|Informaci[oó]n complementaria|Listado de etapas|Etapa actual)\b|$)",
+        texto,
+        re.I,
+    )
     fase = " ".join(m_fase.group("fase").split()) if m_fase else None
     etapa_actual = None
     if m_fase:
