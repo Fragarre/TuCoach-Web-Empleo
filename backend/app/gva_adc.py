@@ -28,7 +28,7 @@ ESPECIALIDADES_EXCLUIDAS = (
     (r"\bC2-01-02\b", "especialidad_c2_01_02"),
     (r"\bC2-01-EDU\b|\bC1-01-EDU\b", "sector_educacion"),
     (r"protocolo", "especialidad_protocolo"),
-    (r"orientador(?:a|es)?(?:\\s+laboral(?:es)?)?", "especialidad_orientacion_laboral"),
+    (r"orientador(?:a|es)?(?:\s+laboral(?:es)?)?", "especialidad_orientacion_laboral"),
     (r"auxiliar(?:es)? de servicios", "especialidad_auxiliar_servicios"),
     (r"comunicacion y relaciones informativas", "especialidad_comunicacion"),
     (r"fondos europeos", "especialidad_fondos_europeos"),
@@ -104,9 +104,9 @@ def _bolsas_explicitas(texto: str) -> list[str]:
     """Extrae solo referencias presentadas explícitamente como bolsa(s)."""
     halladas: set[str] = set()
     normalizado = _sin_acentos(texto)
-    for m in re.finditer(r"\\bbolsas?\\s*[:.]?\\s*([^.;)]{1,160})", normalizado, re.I):
+    for m in re.finditer(r"\bbolsas?\s*[:.]?\s*([^.;)]{1,160})", normalizado, re.I):
         tramo = m.group(1)
-        for ref in re.findall(r"\\b\\d{2,4}(?:/\\d{2,4})?(?:[- ]?[bl])?\\b", tramo, re.I):
+        for ref in re.findall(r"\b\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\b", tramo, re.I):
             halladas.add(ref.upper().replace(" ", ""))
     return sorted(halladas)
 
