@@ -90,6 +90,19 @@ def _fecha(texto: str, etiqueta: str) -> str | None:
     return m.group(1).replace("/", "-") if m else None
 
 
+def _plazo_adc(soup: BeautifulSoup, texto: str) -> dict[str, str | None]:
+    """Extrae el plazo de la etapa inicial sin confundir publicaciones posteriores."""
+    texto_lineas = "\n".join(soup.stripped_strings)
+    patrones = (
+        r"(?:Plazo|Termini)(?: de presentaci[oó]n| de presentacio| de la etapa actual)?\s*:?[\s\n]*(?:Desde|Des de)?\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})\s*(?:hasta|fins(?:\s+al)?|a)\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})",
+        r"(?:Desde|Des de)\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})\s*(?:hasta|fins(?:\s+al)?|a)\s*(?:el\s+)?(\d{2}[-/]\d{2}[-/]\d{4})",
+    )
+    for patron in patrones:
+        m = re.search(patron, texto_lineas, re.I)
+        if m:
+            return {"apertura": m.group(1).replace("/", "-"), "cierre": m.group(2).replace("/", "-")}
+    return {"apertura": None, "cierre": None}
+
 def _plazas(texto: str) -> int | None:
     m = re.search(r"(?:Numero|Número) de plazas totales\s*:?[ \t]*(\d+)", texto, re.I)
     if not m:
@@ -177,8 +190,9 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
         or denominacion.upper().startswith("ADC ")
     )
 
-    apertura = _fecha(texto, "Apertura plazo")
-    cierre = _fecha(texto, "Cierre plazo")
+    plazo = _plazo_adc(soup, texto)
+    apertura = _fecha(texto, "Apertura plazo") or plazo["apertura"]
+    cierre = _fecha(texto, "Cierre plazo") or plazo["cierre"]
     bolsas_ficha = _bolsas_explicitas(denominacion)
     etapas = _datos_etapas(soup, texto)
     bolsas_pdf = _bolsas_documento_pdf(client, etapas["documentos_pdf"])
