@@ -158,7 +158,8 @@ def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
 
     apertura = _fecha(texto, "Apertura plazo")
     cierre = _fecha(texto, "Cierre plazo")
-    bolsas = _bolsas_explicitas(texto)
+    bolsas = _bolsas_explicitas(denominacion + " " + texto)
+    etapas = _datos_etapas(soup, texto)
 
     return {
         "id_emp": id_emp,
@@ -170,8 +171,10 @@ def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
         "plazas": proceso.get("plazas") or _plazas(texto),
         "fecha_apertura": proceso.get("fecha_apertura") or apertura,
         "fecha_cierre": proceso.get("fecha_cierre") or cierre,
-        "etapa_actual_gva": (proceso.get("datos_json") or {}).get("etapa_actual_gva"),
-        "fase_gva": (proceso.get("datos_json") or {}).get("fase_gva"),
+        "etapa_actual_gva": etapas["etapa_actual"],
+        "estado_plazo": etapas["estado_plazo"],
+        "fechas_publicacion": etapas["fechas_publicacion"],
+        "documentos_pdf": etapas["documentos_pdf"],
         "url": url,
         "bolsas_relacionadas": bolsas,
         "evidencia_relacion": "TEXTO_FICHA" if bolsas else None,
