@@ -14,12 +14,13 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from . import gva_clean
 from .database import get_connection
 from .gva_estatal_service import _get_gva_con_reintentos
 from .gva_estatal_source import nuevo_cliente
-from .organismos import resolver_organismo
+from .organismos import resolver_fuente, resolver_organismo
 
 
 CODIGOS_ADMIN_ESTRICTOS = ("A1-01", "A2-01", "C1-01", "C2-01")
@@ -321,4 +322,104 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
         "diagnostico": diagnostico,
         "acciones": acciones,
         "excluidos": excluidos,
+    }
+
+
+def _resolver_identidad_gva_directa(cursor) -> tuple[int, int]:
+    organismo = resolver_organismo(
+        cursor,
+        tipo="ADMINISTRACION_AUTONOMICA",
+        provincia=None,
+        nombre="Generalitat Valenciana",
+    )
+    if organismo is None:
+        raise RuntimeError("Persistencia GVA directa bloqueada: organismo Generalitat Valenciana no localizado")
+    fuente = resolver_fuente(
+        cursor,
+        nombre="Diari Oficial de la Generalitat Valenciana",
+        tipo="DOGV",
+        organismo_id=organismo["id"],
+    )
+    return int(organismo["id"]), int(fuente["id"])
+
+
+def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, Any]:
+    """Persiste solo altas NUEVAS del plan complementario; por defecto no escribe."""
+    plan = planificar_bolsas_gva_complementarias()
+    nuevas = [a for a in plan["acciones"] if a["accion"] == "NUEVA"]
+    if not aplicar:
+        return {
+            **plan,
+            "persistencia": "SOLO_REVISION",
+            "insertables": len(nuevas),
+        }
+
+    # Redescubrimos inmediatamente antes de escribir y volvemos a deduplicar.
+    descubiertas: dict[int, str] = {}
+    with nuevo_cliente() as client:
+        for codigo in CODIGOS_ADMIN_ESTRICTOS:
+            descubiertas.update(_descubrir_por_codigo(client, codigo))
+        candidatos: list[dict[str, Any]] = []
+        for id_emp, url in sorted(descubiertas.items()):
+            respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+            proceso = _clasificar_detalle(id_emp, url, respuesta.text)
+            if proceso.get("es_oportunidad"):
+                candidatos.append(proceso)
+
+    existentes = _cargar_coincidencias(candidatos)
+    insertables = [
+        p for p in candidatos
+        if int(p["datos_json"]["id_emp"]) not in existentes
+        and str(p["datos_json"].get("fase_gva") or "").strip().lower() == "bolsa en funcionamiento"
+    ]
+
+    insertados: list[dict[str, Any]] = []
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        organismo_id, fuente_id = _resolver_identidad_gva_directa(cursor)
+        for proceso in insertables:
+            datos = dict(proceso.get("datos_json") or {})
+            id_emp = int(datos["id_emp"])
+            cursor.execute(
+                """
+                INSERT INTO procesos (
+                    organismo_id,codigo_externo,identificador_estable,denominacion,
+                    cuerpo_escala,grupo,tipo_proceso,turno,estado,
+                    anio_convocatoria,fecha_apertura,fecha_cierre,ultima_publicacion_at,
+                    fuente_principal_id,datos_json,es_oportunidad,origen_dato,
+                    revision_estado,ambito_administrativo,created_at,updated_at
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',
+                    %s,%s,%s,%s,%s,%s,TRUE,'AUTOMATICO',
+                    'PUBLICADA','SI',NOW(),NOW()
+                )
+                ON CONFLICT (identificador_estable) DO NOTHING
+                RETURNING id
+                """,
+                (
+                    organismo_id,
+                    str(id_emp),
+                    f"GVA:{id_emp}",
+                    proceso["denominacion"],
+                    proceso.get("cuerpo_escala"),
+                    proceso.get("grupo"),
+                    "Bolsa de trabajo",
+                    proceso.get("turno"),
+                    proceso.get("anio_convocatoria"),
+                    proceso.get("fecha_apertura"),
+                    proceso.get("fecha_cierre"),
+                    proceso.get("ultima_publicacion_at"),
+                    fuente_id,
+                    Jsonb(datos),
+                ),
+            )
+            fila = cursor.fetchone()
+            if fila:
+                insertados.append({"id_emp": id_emp, "proceso_id": int(fila["id"])})
+
+    return {
+        "modo": "APLICADO",
+        "escrituras_bd": True,
+        "insertables": len(insertables),
+        "insertados": insertados,
+        "omitidas_por_deduplicacion_o_fase": len(candidatos) - len(insertables),
     }
