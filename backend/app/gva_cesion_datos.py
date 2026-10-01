@@ -305,7 +305,7 @@ def planificar_cesiones_gva() -> dict[str, Any]:
 
 
 def _publicar(cursor, *, bolsa_id: int, fuente_id: int, cesion: dict[str, Any]) -> bool:
-    referencia = f"GVA_CESION_DATOS:{cesion['id_emp']}:{cesion.get('fecha_publicacion') or ''}"
+    referencia = f"GVA_CESION_DATOS:{cesion['id_emp']}:{cesion.get('fecha_publicacion') or ''}:{bolsa_id}"
     cursor.execute(
         "SELECT id FROM publicaciones WHERE proceso_id=%s AND fuente_id=%s AND referencia=%s LIMIT 1",
         (bolsa_id, fuente_id, referencia),
