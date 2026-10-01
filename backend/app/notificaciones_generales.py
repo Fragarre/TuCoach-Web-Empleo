@@ -97,6 +97,31 @@ def ids_oportunidades_visibles() -> set[int]:
         return {int(row[0]) for row in cursor.fetchall()}
 
 
+def filtrar_nuevas_oportunidades_notificables(proceso_ids: Iterable[int]) -> set[int]:
+    """Excluye solo ADC no accionables del aviso general de alta.
+
+    Los ADC se mantienen visibles en Empleo. Esta función afecta únicamente a
+    la creación del evento NUEVA_OPORTUNIDAD.
+    """
+    ids = sorted({int(proceso_id) for proceso_id in proceso_ids})
+    if not ids:
+        return set()
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id
+            FROM procesos
+            WHERE id = ANY(%s)
+              AND NOT (
+                    tipo_proceso = 'Anuncio difícil cobertura (ADC)'
+                    AND COALESCE((datos_json->>'accionable')::boolean, FALSE) = FALSE
+                  )
+            """,
+            (ids,),
+        )
+        return {int(row[0]) for row in cursor.fetchall()}
+
+
 def registrar_nuevas_oportunidades(proceso_ids: Iterable[int]) -> list[int]:
     """Crea como máximo un evento NUEVA_OPORTUNIDAD por proceso.
 
