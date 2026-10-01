@@ -21,6 +21,7 @@ from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from .gva_estatal_service import importar_gva_estatal
 from .gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
 from .gva_adc import persistir_adc_gva
+from .gva_cesion_datos import persistir_cesiones_gva
 from .notificaciones_generales import enviar_envios_pendientes, filtrar_nuevas_oportunidades_notificables, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
 from .clasificacion_auditoria import revisar_clasificacion_puestos
@@ -292,7 +293,7 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         lambda: persistir_adc_gva(aplicar=aplicar),
     )
 
-    # Se activa explícitamente tras validar la auditoría histórica. Procesa una
+    # Cesiones GVA: solo novedades de bolsas explícitamente relacionadas.\n    registrar("gva_cesiones_datos", lambda: persistir_cesiones_gva(aplicar=aplicar))\n\n    # Se activa explícitamente tras validar la auditoría histórica. Procesa una
     # tanda pequeña, aislada del resto de fuentes, y nunca reescribe campos.
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
         registrar(
