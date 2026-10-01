@@ -17,6 +17,11 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+
+from .database import get_connection
+from .organismos import resolver_fuente, resolver_organismo
 
 from . import gva_clean
 from .gva_estatal_service import _get_gva_con_reintentos
@@ -294,4 +299,144 @@ def inventariar_adc_gva() -> dict[str, Any]:
         "diagnostico": diagnostico,
         "adc_validos": validos,
         "excluidos": excluidos,
+    }
+
+
+def _resolver_identidad_gva_adc(cursor) -> tuple[int, int]:
+    organismo = resolver_organismo(
+        cursor,
+        tipo="ADMINISTRACION_AUTONOMICA",
+        provincia=None,
+        nombre="Generalitat Valenciana",
+    )
+    if organismo is None:
+        raise RuntimeError("Persistencia ADC bloqueada: Generalitat Valenciana no localizada")
+    fuente = resolver_fuente(
+        cursor,
+        nombre="Diari Oficial de la Generalitat Valenciana",
+        tipo="DOGV",
+        organismo_id=organismo["id"],
+    )
+    return int(organismo["id"]), int(fuente["id"])
+
+
+def planificar_adc_gva() -> dict[str, Any]:
+    """Planifica altas/actualizaciones ADC sin escribir en BD."""
+    inventario = inventariar_adc_gva()
+    validos = inventario["adc_validos"]
+    identificadores = [x["identificador_estable"] for x in validos]
+    existentes: dict[str, dict[str, Any]] = {}
+    if identificadores:
+        with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT id, identificador_estable, datos_json FROM procesos WHERE identificador_estable = ANY(%s)",
+                (identificadores,),
+            )
+            existentes = {x["identificador_estable"]: dict(x) for x in cursor.fetchall()}
+
+    acciones = []
+    for adc in validos:
+        existente = existentes.get(adc["identificador_estable"])
+        acciones.append({
+            "accion": "ACTUALIZAR" if existente else "NUEVA",
+            "proceso_id": int(existente["id"]) if existente else None,
+            "identificador_estable": adc["identificador_estable"],
+            "numero_adc": adc["numero_adc"],
+            "denominacion": adc["denominacion"],
+            "cuerpo_escala": adc["cuerpo_escala"],
+            "plazas": adc["plazas"],
+            "fecha_apertura": adc["fecha_apertura"],
+            "fecha_cierre": adc["fecha_cierre"],
+            "accionable": adc["accionable"],
+            "motivo_accionabilidad": adc["motivo_accionabilidad"],
+            "bolsas_relacionadas": adc["bolsas_relacionadas"],
+            "registro": adc,
+        })
+    return {
+        "modo": "SOLO_REVISION",
+        "escrituras_bd": False,
+        "notificaciones": False,
+        "resumen": {
+            "validos": len(validos),
+            "nuevos": sum(x["accion"] == "NUEVA" for x in acciones),
+            "actualizar": sum(x["accion"] == "ACTUALIZAR" for x in acciones),
+            "accionables": sum(bool(x["accionable"]) for x in acciones),
+        },
+        "acciones": acciones,
+        "excluidos": inventario["excluidos"],
+    }
+
+
+def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
+    """Persiste ADC como oportunidades; no genera notificaciones."""
+    plan = planificar_adc_gva()
+    if not aplicar:
+        return plan
+
+    insertados = 0
+    actualizados = 0
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        organismo_id, fuente_id = _resolver_identidad_gva_adc(cursor)
+        for accion in plan["acciones"]:
+            adc = accion["registro"]
+            datos = {
+                "id_emp": adc["id_emp"],
+                "numero_adc": adc["numero_adc"],
+                "url_detalle": adc["url"],
+                "categoria_gva": "ADC",
+                "etapa_actual_gva": adc["etapa_actual_gva"],
+                "estado_plazo": adc["estado_plazo"],
+                "accionable": adc["accionable"],
+                "motivo_accionabilidad": adc["motivo_accionabilidad"],
+                "bolsas_relacionadas": adc["bolsas_relacionadas"],
+                "evidencia_relacion": adc["evidencia_relacion"],
+                "documentos_pdf": adc["documentos_pdf"],
+                "fechas_publicacion": adc["fechas_publicacion"],
+            }
+            if accion["accion"] == "NUEVA":
+                cursor.execute(
+                    """
+                    INSERT INTO procesos (
+                        organismo_id,codigo_externo,identificador_estable,denominacion,
+                        cuerpo_escala,grupo,tipo_proceso,plazas,estado,
+                        fecha_apertura,fecha_cierre,fuente_principal_id,datos_json,
+                        es_oportunidad,origen_dato,revision_estado,ambito_administrativo,
+                        created_at,updated_at
+                    ) VALUES (
+                        %s,%s,%s,%s,%s,%s,'Anuncio difícil cobertura (ADC)',%s,'EN_CURSO',
+                        %s,%s,%s,%s,TRUE,'AUTOMATICO','PUBLICADA','SI',NOW(),NOW()
+                    )
+                    ON CONFLICT (identificador_estable) DO NOTHING
+                    """,
+                    (
+                        organismo_id,str(adc["id_emp"]),adc["identificador_estable"],
+                        adc["denominacion"],adc["cuerpo_escala"],adc["grupo"],adc["plazas"],
+                        adc["fecha_apertura"],adc["fecha_cierre"],fuente_id,Jsonb(datos),
+                    ),
+                )
+                insertados += cursor.rowcount
+            else:
+                cursor.execute(
+                    """
+                    UPDATE procesos
+                    SET plazas=%s,
+                        fecha_apertura=COALESCE(%s,fecha_apertura),
+                        fecha_cierre=COALESCE(%s,fecha_cierre),
+                        datos_json=COALESCE(datos_json,'{}'::jsonb) || %s,
+                        updated_at=NOW()
+                    WHERE id=%s AND identificador_estable=%s
+                    """,
+                    (
+                        adc["plazas"],adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
+                        accion["proceso_id"],adc["identificador_estable"],
+                    ),
+                )
+                actualizados += cursor.rowcount
+        connection.commit()
+    return {
+        "modo": "APLICADO",
+        "escrituras_bd": True,
+        "notificaciones": False,
+        "insertados": insertados,
+        "actualizados": actualizados,
     }
