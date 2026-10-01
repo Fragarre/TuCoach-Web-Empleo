@@ -458,6 +458,15 @@ def planificar_adc_gva() -> dict[str, Any]:
             "registro": adc,
         })
 
+    relaciones_previstas: dict[str, Any] = {}
+    if acciones:
+        with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+            for accion in acciones:
+                adc = accion["registro"]
+                relaciones_previstas[str(adc["id_emp"])] = _resolver_bolsas_relacionadas(
+                    cursor, adc["bolsas_relacionadas"]
+                )
+
     return {
         "modo": "SOLO_REVISION",
         "escrituras_bd": False,
@@ -470,6 +479,7 @@ def planificar_adc_gva() -> dict[str, Any]:
             "accionables": sum(bool(x["accionable"]) for x in acciones),
         },
         "acciones": acciones,
+        "relaciones_previstas": relaciones_previstas,
         "excluidos": inventario["excluidos"],
     }
 
