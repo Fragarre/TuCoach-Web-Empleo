@@ -409,6 +409,104 @@ def planificar_adc_gva() -> dict[str, Any]:
         "excluidos": inventario["excluidos"],
     }
 
+
+def _normalizar_ref_bolsa(ref: str) -> str:
+    return str(ref or "").upper().replace(" ", "").strip()
+
+
+def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, Any]:
+    """Resuelve solo referencias documentales inequívocas contra bolsas GVA existentes."""
+    resueltas: dict[str, int] = {}
+    ambiguas: dict[str, list[int]] = {}
+    no_resueltas: list[str] = []
+
+    for referencia in referencias:
+        ref = _normalizar_ref_bolsa(referencia)
+        if not ref:
+            continue
+        # Las referencias históricas tipo 500/22 no se convierten en un número
+        # de bolsa administrativa: se conservan como evidencia, pero no se enlazan.
+        if "/" in ref:
+            no_resueltas.append(ref)
+            continue
+        m = re.fullmatch(r"(\d{2,4})(?:-?([BL]))?", ref)
+        if not m:
+            no_resueltas.append(ref)
+            continue
+        numero, sufijo = m.groups()
+        patron = rf"(^|[^0-9]){re.escape(numero)}(?:-?{sufijo})?([^0-9]|$)" if sufijo else rf"(^|[^0-9]){re.escape(numero)}(?:-?[BL])?([^0-9]|$)"
+        cursor.execute(
+            """
+            SELECT id, denominacion
+            FROM procesos
+            WHERE es_oportunidad=TRUE
+              AND ambito_administrativo='SI'
+              AND tipo_proceso='Bolsa de trabajo'
+              AND denominacion ~* %s
+            ORDER BY id
+            """,
+            (patron,),
+        )
+        candidatos = list(cursor.fetchall())
+        if len(candidatos) == 1:
+            resueltas[ref] = int(candidatos[0]["id"])
+        elif len(candidatos) > 1:
+            ambiguas[ref] = [int(x["id"]) for x in candidatos]
+        else:
+            no_resueltas.append(ref)
+
+    return {
+        "resueltas": resueltas,
+        "ambiguas": ambiguas,
+        "no_resueltas": sorted(set(no_resueltas)),
+    }
+
+
+def _publicacion_adc_en_bolsa(
+    cursor,
+    *,
+    bolsa_id: int,
+    fuente_id: int,
+    adc: dict[str, Any],
+) -> bool:
+    """Crea una novedad idempotente en una bolsa solo con relación documental explícita."""
+    referencia = f"ADC:{adc['id_emp']}"
+    cursor.execute(
+        """
+        SELECT id
+        FROM publicaciones
+        WHERE proceso_id=%s AND fuente_id=%s AND referencia=%s
+        LIMIT 1
+        """,
+        (bolsa_id, fuente_id, referencia),
+    )
+    if cursor.fetchone() is not None:
+        return False
+    titulo = f"ADC {adc.get('numero_adc') or adc['id_emp']} relacionado documentalmente con esta bolsa"
+    cursor.execute(
+        """
+        INSERT INTO publicaciones (
+            proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,
+            datos_json,detectada_at
+        ) VALUES (%s,%s,%s,'ADC_RELACIONADO',%s,NULL,%s,%s,NOW())
+        """,
+        (
+            bolsa_id,
+            fuente_id,
+            referencia,
+            titulo,
+            adc["url"],
+            Jsonb({
+                "adc_id_emp": adc["id_emp"],
+                "numero_adc": adc.get("numero_adc"),
+                "evidencia_relacion": adc.get("evidencia_relacion"),
+                "bolsas_relacionadas": adc.get("bolsas_relacionadas") or [],
+            }),
+        ),
+    )
+    return True
+
+
 def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
     """Persiste ADC como oportunidades; no genera notificaciones."""
     plan = planificar_adc_gva()
@@ -417,6 +515,9 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
 
     insertados = 0
     actualizados = 0
+    publicaciones_bolsas = 0
+    relaciones_ambiguas: dict[str, list[int]] = {}
+    relaciones_no_resueltas: set[str] = set()
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         organismo_id, fuente_id = _resolver_identidad_gva_adc(cursor)
         for accion in plan["acciones"]:
@@ -474,6 +575,18 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                     ),
                 )
                 actualizados += cursor.rowcount
+
+            relaciones = _resolver_bolsas_relacionadas(cursor, adc["bolsas_relacionadas"])
+            relaciones_ambiguas.update(relaciones["ambiguas"])
+            relaciones_no_resueltas.update(relaciones["no_resueltas"])
+            for bolsa_id in relaciones["resueltas"].values():
+                if _publicacion_adc_en_bolsa(
+                    cursor,
+                    bolsa_id=bolsa_id,
+                    fuente_id=fuente_id,
+                    adc=adc,
+                ):
+                    publicaciones_bolsas += 1
         connection.commit()
     return {
         "modo": "APLICADO",
@@ -481,4 +594,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
         "notificaciones": False,
         "insertados": insertados,
         "actualizados": actualizados,
+        "publicaciones_bolsas": publicaciones_bolsas,
+        "relaciones_ambiguas": relaciones_ambiguas,
+        "relaciones_no_resueltas": sorted(relaciones_no_resueltas),
     }
