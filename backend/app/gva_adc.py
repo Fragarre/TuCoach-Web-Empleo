@@ -100,16 +100,14 @@ def _numero_adc(denominacion: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _bolsas_explicitas(texto: str) -> list[str]:
-    """Extrae solo referencias presentadas explícitamente como bolsa(s)."""
+def _bolsas_explicitas(denominacion: str) -> list[str]:
+    """Extrae solo referencias explícitas e inmediatas en la denominación."""
     halladas: set[str] = set()
-    normalizado = _sin_acentos(texto)
-    for m in re.finditer(r"\bbolsas?\s*[:.]?\s*([^.;)]{1,160})", normalizado, re.I):
-        tramo = m.group(1)
-        for ref in re.findall(r"\b\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\b", tramo, re.I):
-            halladas.add(ref.upper().replace(" ", ""))
+    normalizado = _sin_acentos(denominacion)
+    patron = r"\b(?:bolsa|borsa)\s*(?:n(?:um(?:ero)?)?[.ºo]?\s*)?([0-9]{2,4}(?:/[0-9]{2,4})?(?:[- ]?[bl])?)\b"
+    for m in re.finditer(patron, normalizado, re.I):
+        halladas.add(m.group(1).upper().replace(" ", ""))
     return sorted(halladas)
-
 
 def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     norm = _sin_acentos(texto)
@@ -158,7 +156,7 @@ def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
 
     apertura = _fecha(texto, "Apertura plazo")
     cierre = _fecha(texto, "Cierre plazo")
-    bolsas = _bolsas_explicitas(denominacion + " " + texto)
+    bolsas = _bolsas_explicitas(denominacion)
     etapas = _datos_etapas(soup, texto)
 
     return {
