@@ -8,12 +8,14 @@ datos necesarios para una posterior persistencia y relación documental con
 bolsas.
 """
 
+import io
 import re
 import unicodedata
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 
 from . import gva_clean
 from .gva_estatal_service import _get_gva_con_reintentos
@@ -109,6 +111,27 @@ def _bolsas_explicitas(denominacion: str) -> list[str]:
         halladas.add(m.group(1).upper().replace(" ", ""))
     return sorted(halladas)
 
+def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
+    """Extrae bolsas solo cuando el PDF oficial contiene una lista explícita."""
+    halladas: set[str] = set()
+    patron_lista = re.compile(r"\b(?:bolsas|borses)\s*[:.]?\s*([^\n]{1,240})", re.I)
+    patron_ref = re.compile(r"\b\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\b", re.I)
+    for documento in documentos:
+        url = documento.get("url")
+        if not url:
+            continue
+        try:
+            respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+            lector = PdfReader(io.BytesIO(respuesta.content))
+            texto_pdf = "\n".join((pagina.extract_text() or "") for pagina in lector.pages)
+        except Exception:
+            continue
+        normalizado = _sin_acentos(texto_pdf)
+        for m in patron_lista.finditer(normalizado):
+            for ref in patron_ref.findall(m.group(1)):
+                halladas.add(ref.upper().replace(" ", ""))
+    return sorted(halladas)
+
 def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     norm = _sin_acentos(texto)
     m_etapa = re.search(r"Etapa actual\s*:\s*(.+?)\s+(?:Data publicaci|Fecha publicaci|Anunci|Anuncio|Termini|Plazo)", texto, re.I)
@@ -136,7 +159,7 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     }
 
 
-def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
+def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
     proceso = gva_clean.parsear_detalle(url, html, id_emp)
     soup = BeautifulSoup(html, "html.parser")
     texto = " ".join(soup.get_text(" ", strip=True).split())
@@ -156,8 +179,10 @@ def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
 
     apertura = _fecha(texto, "Apertura plazo")
     cierre = _fecha(texto, "Cierre plazo")
-    bolsas = _bolsas_explicitas(denominacion)
+    bolsas_ficha = _bolsas_explicitas(denominacion)
     etapas = _datos_etapas(soup, texto)
+    bolsas_pdf = _bolsas_documento_pdf(client, etapas["documentos_pdf"])
+    bolsas = sorted(set(bolsas_ficha) | set(bolsas_pdf))
 
     return {
         "id_emp": id_emp,
@@ -175,7 +200,7 @@ def _clasificar(id_emp: int, url: str, html: str) -> dict[str, Any]:
         "documentos_pdf": etapas["documentos_pdf"],
         "url": url,
         "bolsas_relacionadas": bolsas,
-        "evidencia_relacion": "TEXTO_FICHA" if bolsas else None,
+        "evidencia_relacion": ("PDF_OFICIAL" if bolsas_pdf else ("TEXTO_FICHA" if bolsas_ficha else None)),
         "valido_empleo": bool(es_adc and len(codigos) == 1 and especialidad is None),
         "motivo_exclusion": especialidad if especialidad else (
             None if es_adc and len(codigos) == 1 else "fuera_filtro_administrativo"
@@ -206,7 +231,7 @@ def inventariar_adc_gva() -> dict[str, Any]:
         for id_emp, url in sorted(descubiertos.items()):
             try:
                 respuesta = _get_gva_con_reintentos(client, url, intentos=1)
-                item = _clasificar(id_emp, url, respuesta.text)
+                item = _clasificar(client, id_emp, url, respuesta.text)
             except Exception as exc:
                 excluidos.append({
                     "id_emp": id_emp,
