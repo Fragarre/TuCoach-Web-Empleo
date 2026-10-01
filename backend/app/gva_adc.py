@@ -490,15 +490,29 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
     }
 
 
+def _huella_novedad_adc(adc: dict[str, Any]) -> str:
+    """Identifica de forma estable la etapa/documento oficial actualmente visible."""
+    fechas = adc.get("fechas_publicacion") or []
+    documentos = adc.get("documentos_pdf") or []
+    fecha = fechas[0] if fechas else ""
+    documento = documentos[0].get("url", "") if documentos else ""
+    etapa = adc.get("etapa_actual_gva") or ""
+    return f"{fecha}|{etapa}|{documento}"
+
+
 def _publicacion_adc_en_bolsa(
     cursor,
     *,
     bolsa_id: int,
     fuente_id: int,
     adc: dict[str, Any],
+    huella: str,
 ) -> bool:
-    """Crea una novedad idempotente en una bolsa solo con relación documental explícita."""
-    referencia = f"ADC:{adc['id_emp']}"
+    """Publica una etapa ADC nueva en una bolsa con relación documental explícita."""
+    import hashlib
+
+    digest = hashlib.sha256(huella.encode("utf-8")).hexdigest()[:16]
+    referencia = f"ADC:{adc['id_emp']}:{digest}"
     cursor.execute(
         """
         SELECT id
@@ -510,25 +524,33 @@ def _publicacion_adc_en_bolsa(
     )
     if cursor.fetchone() is not None:
         return False
-    titulo = f"ADC {adc.get('numero_adc') or adc['id_emp']} relacionado documentalmente con esta bolsa"
+    titulo = (
+        f"ADC {adc.get('numero_adc') or adc['id_emp']}: "
+        f"{adc.get('etapa_actual_gva') or 'novedad relacionada'}"
+    )
+    fechas = adc.get("fechas_publicacion") or []
+    fecha_publicacion = fechas[0] if fechas else None
     cursor.execute(
         """
         INSERT INTO publicaciones (
             proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,
             datos_json,detectada_at
-        ) VALUES (%s,%s,%s,'ADC_RELACIONADO',%s,NULL,%s,%s,NOW())
+        ) VALUES (%s,%s,%s,'ADC_RELACIONADO',%s,%s,%s,%s,NOW())
         """,
         (
             bolsa_id,
             fuente_id,
             referencia,
             titulo,
+            fecha_publicacion,
             adc["url"],
             Jsonb({
                 "adc_id_emp": adc["id_emp"],
                 "numero_adc": adc.get("numero_adc"),
+                "etapa_actual_gva": adc.get("etapa_actual_gva"),
                 "evidencia_relacion": adc.get("evidencia_relacion"),
                 "bolsas_relacionadas": adc.get("bolsas_relacionadas") or [],
+                "huella_novedad": huella,
             }),
         ),
     )
@@ -607,14 +629,21 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
             relaciones = _resolver_bolsas_relacionadas(cursor, adc["bolsas_relacionadas"])
             relaciones_ambiguas.update(relaciones["ambiguas"])
             relaciones_no_resueltas.update(relaciones["no_resueltas"])
-            for bolsa_id in relaciones["resueltas"].values():
-                if _publicacion_adc_en_bolsa(
-                    cursor,
-                    bolsa_id=bolsa_id,
-                    fuente_id=fuente_id,
-                    adc=adc,
-                ):
-                    publicaciones_bolsas += 1
+
+            # Baseline histórico silencioso: una ADC que entra por primera vez y
+            # ya no es accionable se registra, pero no genera novedades en bolsas.
+            publicar_en_bolsas = accion["accion"] == "ACTUALIZAR" or bool(adc["accionable"])
+            if publicar_en_bolsas:
+                huella = _huella_novedad_adc(adc)
+                for bolsa_id in relaciones["resueltas"].values():
+                    if _publicacion_adc_en_bolsa(
+                        cursor,
+                        bolsa_id=bolsa_id,
+                        fuente_id=fuente_id,
+                        adc=adc,
+                        huella=huella,
+                    ):
+                        publicaciones_bolsas += 1
         connection.commit()
     return {
         "modo": "APLICADO",
