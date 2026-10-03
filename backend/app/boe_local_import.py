@@ -146,6 +146,12 @@ def _buscar_proceso_evento_documental(cursor, *, organismo_nombre: str | None, p
     )
     return list(cursor.fetchall())
 
+def _estado_despues_evento_documental(tipo_documento: str, estado_actual: str | None) -> str | None:
+    """Determina el estado del proceso sin alterar estados por una rectificación."""
+    if tipo_documento == "ANULACION":
+        return "ANULADO"
+    return estado_actual
+
 def _es_turno_interno(turno: str | None) -> bool:
     return "promocion interna" in _sin(turno)
 
@@ -348,7 +354,7 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                                 'boe_local_eventos',
                                 COALESCE(datos_json->'boe_local_eventos','[]'::jsonb) || %s::jsonb
                             ),
-                            estado = CASE WHEN %s = 'ANULACION' THEN 'ANULADO' ELSE estado END,
+                            estado = %s,
                             ultima_publicacion_at = GREATEST(
                                 COALESCE(ultima_publicacion_at, %s::date::timestamptz),
                                 %s::date::timestamptz
@@ -356,7 +362,7 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                             updated_at=NOW()
                         WHERE id=%s
                         """,
-                        (Jsonb(datos_evento), tipo_documento, convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"), candidato_evento["id"]),
+                        (Jsonb(datos_evento), _estado_despues_evento_documental(tipo_documento, candidato_evento.get("estado")), convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"), candidato_evento["id"]),
                     )
                     _insertar_publicacion_boe(
                         cursor,
