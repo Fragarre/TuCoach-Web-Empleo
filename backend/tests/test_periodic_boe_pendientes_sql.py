@@ -10,6 +10,7 @@ class PeriodicBoePendientesSqlTest(unittest.TestCase):
         texto = PERIODIC.read_text(encoding="utf-8")
         self.assertIn("AS fecha_bases", texto)
         self.assertIn("p.identificador_estable LIKE 'DVAL:%'", texto)
+        self.assertIn("p.identificador_estable LIKE 'AVAL:%'", texto)
         self.assertIn('fecha_bases=proceso["fecha_bases"]', texto)
         self.assertNotIn("AND p.fecha_convocatoria IS NOT NULL", texto)
         self.assertIn("LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'", texto)
