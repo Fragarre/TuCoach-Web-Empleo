@@ -22,8 +22,25 @@ _familia = _MODULE._familia
 _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
 _nombres_entidad = _MODULE._nombres_entidad
 _buscar_proceso_evento_documental = _MODULE._buscar_proceso_evento_documental
-_estado_despues_evento_documental = _MODULE._estado_despues_evento_documental\n\n# El extractor se carga aparte para probar la clasificación documental BOE.\n_EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"\n_EXTRACTOR_SPEC = importlib.util.spec_from_file_location("app.boe_local_extractor", _EXTRACTOR_PATH)\nassert _EXTRACTOR_SPEC and _EXTRACTOR_SPEC.loader\n_EXTRACTOR = importlib.util.module_from_spec(_EXTRACTOR_SPEC)\n_EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR)\n_tipo_documento_boe = _EXTRACTOR._tipo_documento_boe
+_estado_despues_evento_documental = _MODULE._estado_despues_evento_documental
+
+# El extractor se carga aparte para probar la clasificación documental BOE.
+_EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"
+_EXTRACTOR_SPEC = importlib.util.spec_from_file_location("app.boe_local_extractor", _EXTRACTOR_PATH)
+assert _EXTRACTOR_SPEC and _EXTRACTOR_SPEC.loader
+_EXTRACTOR = importlib.util.module_from_spec(_EXTRACTOR_SPEC)
+_EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR)
+_tipo_documento_boe = _EXTRACTOR._tipo_documento_boe
+_extraer_plaza = _EXTRACTOR._extraer_plaza
 _extraer_resolucion_anterior = _EXTRACTOR._extraer_resolucion_anterior
+
+
+class ExtractorBoeLocalRegressionTest(unittest.TestCase):
+    def test_errata_boe_adminstrativo_no_se_descarta(self) -> None:
+        plaza = _extraer_plaza("Dos plazas de Auxiliar Adminstrativo/a, por turno libre.")
+        self.assertIsNotNone(plaza)
+        self.assertEqual(plaza["ambito_administrativo"], "SI")
+        self.assertEqual(plaza["plazas"], 2)
 
 
 class FamiliaBoeLocalTest(unittest.TestCase):
