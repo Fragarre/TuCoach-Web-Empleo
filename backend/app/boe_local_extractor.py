@@ -225,19 +225,45 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                     errores.append({"fecha": fecha.isoformat(), "error": f"{ident}: {type(exc).__name__}: {str(exc)[:160]}"})
                     continue
 
+                tipo_documento = _tipo_documento_boe(titulo, texto)
+                bases_bop = _extraer_bases_bop(texto)
+                entidad = _extraer_entidad(titulo)
+                provincia = _extraer_provincia(titulo)
+                plazo_literal = _extraer_plazo_literal(texto)
+                resolucion_anterior = _extraer_resolucion_anterior(titulo, texto)
+
                 plazas = []
                 for fragmento in _fragmentos_plazas(texto):
                     plaza = _extraer_plaza(fragmento)
                     if plaza and plaza["ambito_administrativo"] == "SI":
                         plazas.append(plaza)
+
                 if not plazas:
+                    if tipo_documento in ("RECTIFICACION", "ANULACION"):
+                        convocatorias.append({
+                            "codigo_externo": f"{ident}#evento",
+                            "boe_id": ident,
+                            "fecha_boe": fecha.isoformat(),
+                            "entidad": entidad,
+                            "provincia": provincia,
+                            "denominacion": None,
+                            "plazas": None,
+                            "sistema_selectivo": None,
+                            "turno": None,
+                            "ambito_administrativo": None,
+                            "bases_bop": bases_bop,
+                            "plazo_solicitudes_literal": plazo_literal,
+                            "tipo_documento": tipo_documento,
+                            "resolucion_anterior": resolucion_anterior,
+                            "titulo_boe": titulo,
+                            "url_html": _texto_url(item.get("url_html")),
+                            "url_xml": _texto_url(item.get("url_xml")),
+                            "url_pdf": _texto_url(item.get("url_pdf")),
+                            "texto_plaza": texto,
+                        })
                     continue
 
                 documentos_con_ambito += 1
-                bases_bop = _extraer_bases_bop(texto)
-                entidad = _extraer_entidad(titulo)
-                provincia = _extraer_provincia(titulo)
-                plazo_literal = _extraer_plazo_literal(texto)
 
                 for indice, plaza in enumerate(plazas, start=1):
                     convocatorias.append({
