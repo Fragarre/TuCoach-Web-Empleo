@@ -52,7 +52,8 @@ def main() -> int:
                         FROM publicaciones pub
                         JOIN fuentes fb ON fb.id=pub.fuente_id
                         WHERE pub.proceso_id=p.id AND fb.tipo='BOP'
-                          AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP'))
+                          AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP')
+                          AND LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%')
                    ) AS fecha_bases,
                    p.denominacion
             FROM procesos p
@@ -77,7 +78,8 @@ def main() -> int:
                      FROM publicaciones pub
                      JOIN fuentes fb ON fb.id=pub.fuente_id
                      WHERE pub.proceso_id=p.id AND fb.tipo='BOP'
-                       AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP'))
+                       AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP')
+                          AND LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%')
                   ) IS NOT NULL
               {filtro_id}
             ORDER BY fecha_bases,p.id
