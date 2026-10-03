@@ -81,23 +81,15 @@ def clasificar_evento_terminal(tipo_proceso: str | None, titulo: str | None) -> 
     return None
 
 
-def _dias_literal(literal: str, clase: str) -> int | None:
+def _dias_habiles_literal(literal: str) -> int | None:
     normalizado = _sin(literal)
-    m = re.search(rf"\b(\d+)\s+dias?\s+{clase}\b", normalizado, re.I)
+    m = re.search(r"\b(\d+)\s+dias?\s+habiles\b", normalizado, re.I)
     if m:
         return int(m.group(1))
-    m = re.search(rf"\b([a-z]+)\s+dias?\s+{clase}\b", normalizado, re.I)
+    m = re.search(r"\b([a-z]+)\s+dias?\s+habiles\b", normalizado, re.I)
     if m:
         return _NUMEROS_PLAZO.get(m.group(1))
     return None
-
-
-def _dias_habiles_literal(literal: str) -> int | None:
-    return _dias_literal(literal, "habiles")
-
-
-def _dias_naturales_literal(literal: str) -> int | None:
-    return _dias_literal(literal, "naturales")
 
 
 def _calcular_cierre_habiles(fecha_boe: date, dias: int, organismo: str | None) -> date | None:
@@ -137,20 +129,6 @@ def _estado_plazo_boe(
     hoy: date,
     organismo: str | None,
 ) -> dict[str, Any]:
-    dias_naturales = _dias_naturales_literal(literal)
-    if dias_naturales:
-        apertura = fecha_boe + timedelta(days=1)
-        cierre = fecha_boe + timedelta(days=dias_naturales)
-        codigo = "PENDIENTE_APERTURA" if hoy < apertura else ("ABIERTO" if hoy <= cierre else "CERRADO")
-        return {
-            "codigo": codigo,
-            "fecha_apertura": apertura,
-            "fecha_cierre": cierre,
-            "fecha_cierre_calculada": True,
-            "dias_naturales": dias_naturales,
-            "literal": literal,
-        }
-
     dias = _dias_habiles_literal(literal)
     cierre = _calcular_cierre_habiles(fecha_boe, dias, organismo) if dias else None
     if not cierre:
