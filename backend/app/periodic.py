@@ -239,6 +239,7 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         "boe_pendientes_activos",
         lambda: _recuperar_boe_pendientes_activos(
             hasta=fecha_hoy,
+            dias=dias_solape,
             aplicar=aplicar,
         ),
     )
