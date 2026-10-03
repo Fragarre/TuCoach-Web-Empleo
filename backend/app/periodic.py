@@ -65,7 +65,16 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
             """
-            SELECT p.id,p.fecha_convocatoria
+            SELECT p.id,
+                   COALESCE(
+                       p.fecha_convocatoria,
+                       (SELECT MIN(pub.fecha_publicacion)
+                        FROM publicaciones pub
+                        JOIN fuentes fb ON fb.id=pub.fuente_id
+                        WHERE pub.proceso_id=p.id
+                          AND fb.tipo='BOP'
+                          AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP'))
+                   ) AS fecha_bases
             FROM procesos p
             JOIN organismos o ON o.id=p.organismo_id
             WHERE p.es_oportunidad=TRUE
@@ -79,7 +88,15 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
                     (o.tipo='DIPUTACION' AND LOWER(COALESCE(o.provincia,'')) IN
                         ('valencia','valència','alicante','castellón','castellon'))
                   )
-              AND p.fecha_convocatoria IS NOT NULL
+              AND COALESCE(
+                    p.fecha_convocatoria,
+                    (SELECT MIN(pub.fecha_publicacion)
+                     FROM publicaciones pub
+                     JOIN fuentes fb ON fb.id=pub.fuente_id
+                     WHERE pub.proceso_id=p.id
+                       AND fb.tipo='BOP'
+                       AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP'))
+                  ) IS NOT NULL
               AND (
                     p.datos_json->'boe_local' IS NULL
                     OR p.datos_json->'boe_local_agregados' IS NOT NULL
@@ -116,7 +133,7 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
     for proceso in pendientes:
         r = recuperar_boe_para_proceso_bop(
             proceso_id=proceso["id"],
-            fecha_bases=proceso["fecha_convocatoria"],
+            fecha_bases=proceso["fecha_bases"],
             hasta=hasta,
             aplicar=aplicar,
             extraccion_boe=extraccion_boe,
