@@ -400,10 +400,13 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                 if aplicar:
                     proceso_id = candidato["id"]
                     datos_boe = _datos_boe(convocatoria, codigo)
+                    fecha_apertura, fecha_cierre = _fechas_inscripcion_boe(convocatoria)
                     cursor.execute(
                         """
                         UPDATE procesos
                         SET datos_json = COALESCE(datos_json,'{}'::jsonb) || %s,
+                            fecha_apertura = COALESCE(%s::date, fecha_apertura),
+                            fecha_cierre = COALESCE(%s::date, fecha_cierre),
                             ultima_publicacion_at = GREATEST(
                                 COALESCE(ultima_publicacion_at, %s::date::timestamptz),
                                 %s::date::timestamptz
@@ -413,6 +416,8 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                         """,
                         (
                             Jsonb({"boe_local": datos_boe}),
+                            fecha_apertura,
+                            fecha_cierre,
                             convocatoria.get("fecha_boe"),
                             convocatoria.get("fecha_boe"),
                             proceso_id,
