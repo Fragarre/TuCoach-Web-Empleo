@@ -272,7 +272,9 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                             "ambito_administrativo": None,
                             "bases_bop": bases_bop,
                             "plazo_solicitudes_literal": plazo_literal,
-                            "tipo_documento": tipo_documento,\n                            "fecha_resolucion": fecha_resolucion,\n                            "resolucion_anterior": resolucion_anterior,
+                            "tipo_documento": tipo_documento,
+                            "fecha_resolucion": fecha_resolucion,
+                            "resolucion_anterior": resolucion_anterior,
                             "titulo_boe": titulo,
                             "url_html": _texto_url(item.get("url_html")),
                             "url_xml": _texto_url(item.get("url_xml")),
@@ -300,7 +302,9 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                         "url_html": _texto_url(item.get("url_html")),
                         "url_xml": _texto_url(item.get("url_xml")),
                         "url_pdf": _texto_url(item.get("url_pdf")),
-                        "texto_plaza": plaza["texto_fuente"],\n                        "tipo_documento": tipo_documento,\n                        "titulo_boe": titulo,
+                        "texto_plaza": plaza["texto_fuente"],
+                        "tipo_documento": tipo_documento,
+                        "titulo_boe": titulo,
                     })
             fecha += timedelta(days=1)
 
