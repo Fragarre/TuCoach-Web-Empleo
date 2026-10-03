@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 from datetime import datetime
 
+from access import PRIVATE_EMPLOYMENT_USER_IDS
 from .database import get_connection
 from .email_sender import enviar_email
 
@@ -286,55 +287,63 @@ def ids_novedades_seguimiento() -> set[tuple[str, int]]:
 def usuarios_con_novedades_nuevas(
     novedades_antes: set[tuple[str, int]],
 ) -> set[UUID]:
-    """Devuelve los usuarios que siguen procesos con filas creadas en este ciclo."""
-    novedades_despues = ids_novedades_seguimiento()
-    nuevas = novedades_despues - novedades_antes
-
+    """Devuelve usuarios con novedades nuevas respetando el acceso privado."""
+    nuevas = ids_novedades_seguimiento() - novedades_antes
     if not nuevas:
         return set()
 
-    publicaciones = [
-        novedad_id
-        for tipo, novedad_id in nuevas
-        if tipo == "PUBLICACION"
-    ]
-    cambios = [
-        novedad_id
-        for tipo, novedad_id in nuevas
-        if tipo == "CAMBIO"
-    ]
-
+    publicaciones = [novedad_id for tipo, novedad_id in nuevas if tipo == "PUBLICACION"]
+    cambios = [novedad_id for tipo, novedad_id in nuevas if tipo == "CAMBIO"]
     usuarios: set[UUID] = set()
+
+    def admitir_filas(filas: list[tuple[Any, ...]]) -> None:
+        for user_id_raw, tipo_proceso, categoria_gva in filas:
+            user_id = UUID(str(user_id_raw))
+            tipo = str(tipo_proceso or "").strip().lower()
+            categoria = str(categoria_gva or "").strip().upper()
+            privado = tipo in {
+                "bolsa de trabajo",
+                "difícil cobertura",
+                "anuncio difícil cobertura",
+                "anuncio difícil cobertura (adc)",
+            } or categoria in {"BOLSA", "ADC"}
+            if not privado or user_id in PRIVATE_EMPLOYMENT_USER_IDS:
+                usuarios.add(user_id)
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if publicaciones:
                 cursor.execute(
                     """
-                    SELECT DISTINCT s.user_id
+                    SELECT DISTINCT s.user_id, p.tipo_proceso,
+                           p.datos_json->>'categoria_gva'
                     FROM publicaciones pub
+                    JOIN procesos p ON p.id = pub.proceso_id
                     JOIN suscripciones s ON s.proceso_id = pub.proceso_id
                     WHERE pub.id = ANY(%s)
                       AND s.activa = TRUE
                     """,
                     (publicaciones,),
                 )
-                usuarios.update(UUID(str(row[0])) for row in cursor.fetchall())
+                admitir_filas(cursor.fetchall())
 
             if cambios:
                 cursor.execute(
                     """
-                    SELECT DISTINCT s.user_id
+                    SELECT DISTINCT s.user_id, p.tipo_proceso,
+                           p.datos_json->>'categoria_gva'
                     FROM cambios c
+                    JOIN procesos p ON p.id = c.proceso_id
                     JOIN suscripciones s ON s.proceso_id = c.proceso_id
                     WHERE c.id = ANY(%s)
                       AND s.activa = TRUE
                     """,
                     (cambios,),
                 )
-                usuarios.update(UUID(str(row[0])) for row in cursor.fetchall())
+                admitir_filas(cursor.fetchall())
 
     return usuarios
+
 
 def emails_usuarios(user_ids: set[UUID]) -> dict[UUID, str]:
     """Resuelve emails de perfiles activos en la base central de Tu Coach."""
