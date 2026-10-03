@@ -1,0 +1,37 @@
+import importlib.util
+from pathlib import Path
+import unittest
+
+
+APP = Path(__file__).resolve().parents[1] / "app" / "ambito_administrativo.py"
+_SPEC = importlib.util.spec_from_file_location("ambito_administrativo", APP)
+assert _SPEC and _SPEC.loader
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+
+
+class AmbitoCodigoGvaTest(unittest.TestCase):
+    def test_codigos_objetivo(self):
+        for codigo in ("A1-01", "A2-01", "C1-01", "C2-01"):
+            self.assertEqual(
+                _MODULE.clasificar_ambito_administrativo({"denominacion": f"General {codigo}"}),
+                "SI",
+            )
+
+    def test_codigo_gva_no_objetivo_prevalece_sobre_nombre_generico(self):
+        self.assertEqual(
+            _MODULE.clasificar_ambito_administrativo(
+                {"denominacion": "Agentes tributarios C1-07 administrativo"}
+            ),
+            "NO",
+        )
+        self.assertEqual(
+            _MODULE.clasificar_ambito_administrativo(
+                {"denominacion": "Técnico tributario A2-05 administración"}
+            ),
+            "NO",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
