@@ -133,3 +133,13 @@ class PlazoInscripcionBoeTest(unittest.TestCase):
         })
         self.assertEqual(apertura, "2026-09-29")
         self.assertIsNone(cierre)
+
+
+def test_fechas_inscripcion_boe_habil_no_inventa_cierre():
+    convocatoria = {
+        "fecha_boe": "2026-09-28",
+        "plazo_solicitudes_literal": "El plazo de presentación de solicitudes será de veinte días hábiles.",
+    }
+    apertura, cierre = _MODULE._fechas_inscripcion_boe(convocatoria)
+    assert apertura == "2026-09-29"
+    assert cierre is None
