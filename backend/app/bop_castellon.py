@@ -760,6 +760,7 @@ def importar_bop_castellon(
                         (proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,
                          url,datos_json,detectada_at)
                     VALUES (%s,%s,%s,'BOP',%s,%s,%s,%s,NOW())
+                    RETURNING id
                     """,
                     (
                         proceso_id,
@@ -771,6 +772,7 @@ def importar_bop_castellon(
                         Jsonb({"origen": "BOP_CASTELLON", "clase": clase}),
                     ),
                 )
+                publicacion_id = cursor.fetchone()["id"]
                 resultado["publicaciones"] += 1
                 if clase == "SEGUIMIENTO":
                     cursor.execute(
@@ -781,10 +783,7 @@ def importar_bop_castellon(
                         """,
                         (
                             proceso_id,
-                            cursor.execute(
-                                "SELECT id FROM publicaciones WHERE fuente_id=%s AND referencia=%s",
-                                (fuente_id, hallazgo["referencia"]),
-                            ).fetchone()["id"],
+                            publicacion_id,
                             hallazgo["referencia"],
                             f"Nueva publicación oficial: {hallazgo['titulo']}",
                         ),
