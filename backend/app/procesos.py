@@ -122,6 +122,16 @@ def listar_procesos(*, organismo_id: int | None = None, estado: str | None = Non
         query += " AND p.organismo_id = %s"; params.append(organismo_id)
     if estado is not None:
         query += " AND p.estado = %s"; params.append(estado)
+    if not incluir_privados:
+        query += """
+          AND LOWER(TRIM(COALESCE(p.tipo_proceso, ''))) NOT IN (
+              'bolsa de trabajo',
+              'difícil cobertura',
+              'anuncio difícil cobertura',
+              'anuncio difícil cobertura (adc)'
+          )
+          AND UPPER(TRIM(COALESCE(p.datos_json->>'categoria_gva', ''))) NOT IN ('BOLSA', 'ADC')
+        """
     query += " ORDER BY COALESCE(p.fecha_examen,p.fecha_convocatoria,p.fecha_apertura) DESC NULLS LAST,p.id DESC LIMIT %s"
     params.append(limite)
     with get_connection() as connection, connection.cursor() as cursor:
