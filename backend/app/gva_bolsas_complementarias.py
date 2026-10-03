@@ -186,6 +186,19 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
     return proceso
 
 
+def _bolsa_directa_actualizable(existente: dict[str, Any] | None, id_emp: int) -> bool:
+    """Limita el refresco complementario a las bolsas creadas por este módulo."""
+    if not existente:
+        return False
+    if str(existente.get("identificador_estable") or "") != f"GVA:{id_emp}":
+        return False
+    datos = existente.get("datos_json") or {}
+    return (
+        str(datos.get("fuente_descubrimiento") or "").strip().lower() == "sede.gva.es"
+        and str(datos.get("categoria_gva") or "").strip().upper() == "BOLSA"
+    )
+
+
 def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     ids = [int(p["datos_json"]["id_emp"]) for p in candidatos]
     identificadores = [str(p["identificador_estable"]) for p in candidatos]
@@ -205,7 +218,9 @@ def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[st
             )
         cursor.execute(
             """
-            SELECT id, identificador_estable, denominacion, datos_json
+            SELECT id, identificador_estable, denominacion, cuerpo_escala, grupo,
+                   turno, anio_convocatoria, fecha_apertura, fecha_cierre,
+                   ultima_publicacion_at, datos_json
             FROM procesos
             WHERE organismo_id=%s
               AND (
@@ -362,8 +377,27 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
     for proceso in candidatos:
         id_emp = int(proceso["datos_json"]["id_emp"])
         existente = existentes.get(id_emp)
+        actualizable = _bolsa_directa_actualizable(existente, id_emp)
+        cambia = False
+        if actualizable:
+            datos_previos = existente.get("datos_json") or {}
+            datos_nuevos = proceso.get("datos_json") or {}
+            cambia = any((
+                existente.get("denominacion") != proceso.get("denominacion"),
+                existente.get("cuerpo_escala") != proceso.get("cuerpo_escala"),
+                existente.get("grupo") != proceso.get("grupo"),
+                existente.get("turno") != proceso.get("turno"),
+                existente.get("anio_convocatoria") != proceso.get("anio_convocatoria"),
+                proceso.get("fecha_apertura") is not None and existente.get("fecha_apertura") != proceso.get("fecha_apertura"),
+                proceso.get("fecha_cierre") is not None and existente.get("fecha_cierre") != proceso.get("fecha_cierre"),
+                proceso.get("ultima_publicacion_at") is not None and existente.get("ultima_publicacion_at") != proceso.get("ultima_publicacion_at"),
+                datos_previos.get("fase_gva") != datos_nuevos.get("fase_gva"),
+                datos_previos.get("etapa_actual_gva") != datos_nuevos.get("etapa_actual_gva"),
+                datos_previos.get("contenido_hash") != datos_nuevos.get("contenido_hash"),
+            ))
+        accion = "NUEVA" if not existente else ("ACTUALIZAR" if cambia else "YA_EXISTE")
         acciones.append({
-            "accion": "YA_EXISTE" if existente else "NUEVA",
+            "accion": accion,
             "id_emp": id_emp,
             "identificador_estable": proceso["identificador_estable"],
             "denominacion": proceso["denominacion"],
@@ -383,6 +417,7 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
         "descubiertas": len(descubiertas),
         "candidatas": len(candidatos),
         "nuevas": sum(a["accion"] == "NUEVA" for a in acciones),
+        "actualizar": sum(a["accion"] == "ACTUALIZAR" for a in acciones),
         "ya_existentes": sum(a["accion"] == "YA_EXISTE" for a in acciones),
         "diagnostico": diagnostico,
         "acciones": acciones,
@@ -409,7 +444,7 @@ def _resolver_identidad_gva_directa(cursor) -> tuple[int, int]:
 
 
 def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, Any]:
-    """Persiste solo altas NUEVAS del plan complementario; por defecto no escribe."""
+    """Inserta bolsas nuevas y refresca únicamente las bolsas directas que gestiona este módulo."""
     plan = planificar_bolsas_gva_complementarias()
     nuevas = [a for a in plan["acciones"] if a["accion"] == "NUEVA"]
     if not aplicar:
@@ -437,8 +472,13 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
         if int(p["datos_json"]["id_emp"]) not in existentes
         and str(p["datos_json"].get("fase_gva") or "").strip().lower() == "bolsa en funcionamiento"
     ]
+    actualizables = [
+        p for p in candidatos
+        if _bolsa_directa_actualizable(existentes.get(int(p["datos_json"]["id_emp"])), int(p["datos_json"]["id_emp"]))
+    ]
 
     insertados: list[dict[str, Any]] = []
+    actualizados: list[dict[str, Any]] = []
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         organismo_id, fuente_id = _resolver_identidad_gva_directa(cursor)
         for proceso in insertables:
@@ -481,10 +521,70 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
             if fila:
                 insertados.append({"id_emp": id_emp, "proceso_id": int(fila["id"])})
 
+        for proceso in actualizables:
+            datos = dict(proceso.get("datos_json") or {})
+            id_emp = int(datos["id_emp"])
+            existente = existentes[id_emp]
+            cursor.execute(
+                """
+                UPDATE procesos
+                SET denominacion=%s,
+                    cuerpo_escala=%s,
+                    grupo=%s,
+                    turno=%s,
+                    anio_convocatoria=%s,
+                    fecha_apertura=COALESCE(%s,fecha_apertura),
+                    fecha_cierre=COALESCE(%s,fecha_cierre),
+                    ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),
+                    datos_json=COALESCE(datos_json,'{}'::jsonb) || %s,
+                    updated_at=CASE
+                        WHEN denominacion IS DISTINCT FROM %s
+                          OR cuerpo_escala IS DISTINCT FROM %s
+                          OR grupo IS DISTINCT FROM %s
+                          OR turno IS DISTINCT FROM %s
+                          OR anio_convocatoria IS DISTINCT FROM %s
+                          OR (%s IS NOT NULL AND fecha_apertura IS DISTINCT FROM %s)
+                          OR (%s IS NOT NULL AND fecha_cierre IS DISTINCT FROM %s)
+                          OR (%s IS NOT NULL AND ultima_publicacion_at IS DISTINCT FROM %s)
+                          OR COALESCE(datos_json->>'fase_gva','') IS DISTINCT FROM COALESCE(%s->>'fase_gva','')
+                          OR COALESCE(datos_json->>'etapa_actual_gva','') IS DISTINCT FROM COALESCE(%s->>'etapa_actual_gva','')
+                          OR COALESCE(datos_json->>'contenido_hash','') IS DISTINCT FROM COALESCE(%s->>'contenido_hash','')
+                        THEN NOW() ELSE updated_at END
+                WHERE id=%s AND identificador_estable=%s
+                RETURNING id, updated_at
+                """,
+                (
+                    proceso.get("denominacion"),
+                    proceso.get("cuerpo_escala"),
+                    proceso.get("grupo"),
+                    proceso.get("turno"),
+                    proceso.get("anio_convocatoria"),
+                    proceso.get("fecha_apertura"),
+                    proceso.get("fecha_cierre"),
+                    proceso.get("ultima_publicacion_at"),
+                    Jsonb(datos),
+                    proceso.get("denominacion"),
+                    proceso.get("cuerpo_escala"),
+                    proceso.get("grupo"),
+                    proceso.get("turno"),
+                    proceso.get("anio_convocatoria"),
+                    proceso.get("fecha_apertura"), proceso.get("fecha_apertura"),
+                    proceso.get("fecha_cierre"), proceso.get("fecha_cierre"),
+                    proceso.get("ultima_publicacion_at"), proceso.get("ultima_publicacion_at"),
+                    Jsonb(datos), Jsonb(datos), Jsonb(datos),
+                    existente["id"], existente["identificador_estable"],
+                ),
+            )
+            fila = cursor.fetchone()
+            if fila:
+                actualizados.append({"id_emp": id_emp, "proceso_id": int(fila["id"])})
+
     return {
         "modo": "APLICADO",
         "escrituras_bd": True,
         "insertables": len(insertables),
         "insertados": insertados,
-        "omitidas_por_deduplicacion_o_fase": len(candidatos) - len(insertables),
+        "actualizables": len(actualizables),
+        "actualizados": actualizados,
+        "omitidas_por_deduplicacion_o_fase": len(candidatos) - len(insertables) - len(actualizables),
     }
