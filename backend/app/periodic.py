@@ -101,9 +101,12 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
                           AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'
                                OR COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'))
                   ) IS NOT NULL
-              AND (
-                    p.datos_json->'boe_local' IS NULL
-                    OR p.datos_json->'boe_local_agregados' IS NOT NULL
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM publicaciones pboe
+                    JOIN fuentes fboe ON fboe.id=pboe.fuente_id
+                    WHERE pboe.proceso_id=p.id
+                      AND fboe.tipo='BOE'
                   )
               AND (
                     p.datos_json->>'origen' IN (
