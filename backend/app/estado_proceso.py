@@ -51,6 +51,18 @@ _NUMEROS_PLAZO = {
     "treinta": 30,
 }
 
+# Calendario administrativo de la Comunitat Valenciana. Se mantiene por año
+# para no calcular fechas exactas con un calendario que no haya sido verificado.
+_FESTIVOS_CV: dict[int, set[date]] = {
+    2026: {
+        date(2026, 1, 1), date(2026, 1, 6), date(2026, 3, 19),
+        date(2026, 4, 3), date(2026, 4, 6), date(2026, 5, 1),
+        date(2026, 6, 24), date(2026, 8, 15), date(2026, 10, 9),
+        date(2026, 10, 12), date(2026, 12, 8), date(2026, 12, 25),
+    }
+}
+
+
 def es_bolsa(tipo_proceso: str | None) -> bool:
     return "bolsa" in _sin(tipo_proceso) or "borsa" in _sin(tipo_proceso)
 
@@ -88,6 +100,25 @@ def _dias_naturales_literal(literal: str) -> int | None:
     return _dias_literal(literal, "naturales")
 
 
+def _calcular_cierre_habiles(fecha_boe: date, dias: int, organismo: str | None) -> date | None:
+    """Calcula el último día con fines de semana y festivos estatales/autonómicos CV.
+
+    No incorpora festivos locales; el resultado debe mostrarse con advertencia
+    para que el usuario confirme posibles días inhábiles del municipio.
+    """
+    if dias <= 0 or fecha_boe.year not in _FESTIVOS_CV:
+        return None
+    festivos = _FESTIVOS_CV[fecha_boe.year]
+    actual = fecha_boe
+    contados = 0
+    while contados < dias:
+        actual += timedelta(days=1)
+        if actual.weekday() >= 5 or actual in festivos:
+            continue
+        contados += 1
+    return actual
+
+
 def _fecha_iso(valor: Any) -> date | None:
     if isinstance(valor, date):
         return valor
@@ -121,10 +152,8 @@ def _estado_plazo_boe(
         }
 
     dias = _dias_habiles_literal(literal)
-    if dias:
-        # Sin el calendario oficial completo aplicable al organismo no se
-        # persiste ni se muestra una fecha exacta de cierre. Un festivo local
-        # puede alterar el cómputo y producir un estado ABIERTO/CERRADO falso.
+    cierre = _calcular_cierre_habiles(fecha_boe, dias, organismo) if dias else None
+    if not cierre:
         return {
             "codigo": "PLAZO_LITERAL",
             "fecha_referencia": fecha_boe + timedelta(days=1),
@@ -132,10 +161,21 @@ def _estado_plazo_boe(
             "literal": literal,
         }
 
+    apertura = fecha_boe + timedelta(days=1)
+    if hoy < apertura:
+        codigo = "PENDIENTE_APERTURA"
+    elif hoy <= cierre:
+        codigo = "ABIERTO"
+    else:
+        codigo = "CERRADO"
     return {
-        "codigo": "PLAZO_LITERAL",
-        "fecha_referencia": fecha_boe + timedelta(days=1),
-        "dias_habiles": None,
+        "codigo": codigo,
+        "fecha_apertura": apertura,
+        "fecha_cierre": cierre,
+        "fecha_cierre_calculada": True,
+        "fecha_cierre_sin_festivos_locales": True,
+        "aviso_festivos_locales": "Confirmar fechas en función de días festivos exclusivos de este municipio",
+        "dias_habiles": dias,
         "literal": literal,
     }
 
