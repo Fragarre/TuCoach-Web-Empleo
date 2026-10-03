@@ -115,10 +115,8 @@ class PlazoInscripcionBoeTest(unittest.TestCase):
             "fecha_boe": "2026-09-28",
             "plazo_solicitudes_literal": "El plazo de presentación de solicitudes será de veinte días naturales.",
         })
-        # El extractor actual sólo calcula cifras explícitas; el literal escrito
-        # en palabras se conserva para revisión y no se inventa.
-        self.assertIsNone(apertura)
-        self.assertIsNone(cierre)
+        self.assertEqual(apertura, "2026-09-29")
+        self.assertEqual(cierre, "2026-10-18")
 
     def test_dias_naturales_numericos_se_calculan(self) -> None:
         apertura, cierre = _fechas_inscripcion_boe({
