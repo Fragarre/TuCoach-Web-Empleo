@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 
 from .boe_local_extractor import extraer_convocatorias_boe_local
 from .database import get_connection
+from .ambito_administrativo import clasificar_ambito_administrativo
 from .organismos import resolver_fuente
 
 
@@ -434,6 +435,17 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                 resultado["revision_solapamiento"] += 1
                 item["estado_importacion"] = "REVISION_SOLAPAMIENTO"
                 item["procesos_bop_candidatos"] = candidatos
+                resultado["detalle"].append(item)
+                continue
+
+            ambito = clasificar_ambito_administrativo({
+                "denominacion": convocatoria.get("denominacion"),
+                "cuerpo_escala": convocatoria.get("texto_plaza"),
+                "grupo": "",
+            })
+            if ambito != "SI":
+                item["estado_importacion"] = "FUERA_AMBITO_ADMINISTRATIVO"
+                item["ambito_administrativo"] = ambito
                 resultado["detalle"].append(item)
                 continue
 
