@@ -21,7 +21,8 @@ _SPEC.loader.exec_module(_MODULE)
 _familia = _MODULE._familia
 _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
 _nombres_entidad = _MODULE._nombres_entidad
-_buscar_proceso_evento_documental = _MODULE._buscar_proceso_evento_documental\n\n# El extractor se carga aparte para probar la clasificación documental BOE.\n_EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"\n_EXTRACTOR_SPEC = importlib.util.spec_from_file_location("app.boe_local_extractor", _EXTRACTOR_PATH)\nassert _EXTRACTOR_SPEC and _EXTRACTOR_SPEC.loader\n_EXTRACTOR = importlib.util.module_from_spec(_EXTRACTOR_SPEC)\n_EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR)\n_tipo_documento_boe = _EXTRACTOR._tipo_documento_boe
+_buscar_proceso_evento_documental = _MODULE._buscar_proceso_evento_documental
+_estado_despues_evento_documental = _MODULE._estado_despues_evento_documental\n\n# El extractor se carga aparte para probar la clasificación documental BOE.\n_EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"\n_EXTRACTOR_SPEC = importlib.util.spec_from_file_location("app.boe_local_extractor", _EXTRACTOR_PATH)\nassert _EXTRACTOR_SPEC and _EXTRACTOR_SPEC.loader\n_EXTRACTOR = importlib.util.module_from_spec(_EXTRACTOR_SPEC)\n_EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR)\n_tipo_documento_boe = _EXTRACTOR._tipo_documento_boe
 _extraer_resolucion_anterior = _EXTRACTOR._extraer_resolucion_anterior
 
 
@@ -169,6 +170,13 @@ class _CursorEventoFake:
     def fetchall(self):
         return self.rows
 
+
+class EstadoEventoDocumentalRegressionTest(unittest.TestCase):
+    def test_anulacion_pasa_a_anulado(self) -> None:
+        self.assertEqual(_estado_despues_evento_documental("ANULACION", "ABIERTO"), "ANULADO")
+
+    def test_rectificacion_conserva_estado(self) -> None:
+        self.assertEqual(_estado_despues_evento_documental("RECTIFICACION", "ABIERTO"), "ABIERTO")
 
 class EventoDocumentalImportacionRegressionTest(unittest.TestCase):
     def test_un_candidato_se_identifica(self) -> None:
