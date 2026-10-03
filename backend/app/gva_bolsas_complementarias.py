@@ -595,16 +595,7 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
                         Jsonb({"origen": "GVA_BOLSA", "etapa_actual_gva": datos.get("etapa_actual_gva"), "fase_gva": datos.get("fase_gva")}),
                     ),
                 )
-                publicacion = cursor.fetchone()
-                if publicacion:
-                    cursor.execute(
-                        """
-                        INSERT INTO cambios
-                            (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo)
-                        VALUES (%s,%s,'PUBLICACION','publicacion',NULL,%s,%s,TRUE)
-                        """,
-                        (proceso_id, publicacion["id"], referencia, f"Novedad en bolsa: {etapa}"),
-                    )
+                cursor.fetchone()
 
         connection.commit()
 
