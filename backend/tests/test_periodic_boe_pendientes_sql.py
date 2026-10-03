@@ -12,6 +12,8 @@ class PeriodicBoePendientesSqlTest(unittest.TestCase):
         self.assertIn("p.identificador_estable LIKE 'DVAL:%'", texto)
         self.assertIn('fecha_bases=proceso["fecha_bases"]', texto)
         self.assertNotIn("AND p.fecha_convocatoria IS NOT NULL", texto)
+        self.assertIn("LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'", texto)
+        self.assertIn("COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'", texto)
 
 
 if __name__ == "__main__":
