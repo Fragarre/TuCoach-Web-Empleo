@@ -32,6 +32,20 @@ ESTADOS_TERMINALES = (
     "desistido", "desistit", "anulado", "anul·lat",
 )
 
+TIPOS_EMPLEO_PRIVADO = {
+    "bolsa de trabajo",
+    "difícil cobertura",
+    "anuncio difícil cobertura",
+    "anuncio difícil cobertura (adc)",
+}
+
+
+def es_proceso_privado(proceso: dict[str, Any]) -> bool:
+    tipo = str(proceso.get("tipo_proceso") or "").strip().lower()
+    datos = proceso.get("datos_json") or {}
+    categoria = str(datos.get("categoria_gva") or "").strip().upper() if isinstance(datos, dict) else ""
+    return tipo in TIPOS_EMPLEO_PRIVADO or categoria in {"BOLSA", "ADC"}
+
 
 def _condiciones_catalogo() -> tuple[str, list[Any]]:
     placeholders_tipo = ", ".join(["%s"] * len(TIPOS_EXCLUIDOS))
@@ -99,7 +113,7 @@ def _enriquecer_proceso(fila: dict[str, Any]) -> dict[str, Any]:
     return enriquecida
 
 
-def listar_procesos(*, organismo_id: int | None = None, estado: str | None = None, limite: int = 100) -> list[dict[str, Any]]:
+def listar_procesos(*, organismo_id: int | None = None, estado: str | None = None, limite: int = 100, incluir_privados: bool = False) -> list[dict[str, Any]]:
     """Lista oportunidades administrativas cuyo proceso selectivo sigue activo."""
     limite = max(1, min(limite, 200))
     catalogo_sql, params = _condiciones_catalogo()
@@ -112,7 +126,10 @@ def listar_procesos(*, organismo_id: int | None = None, estado: str | None = Non
     params.append(limite)
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query, tuple(params)); rows=cursor.fetchall(); columns=[d.name for d in cursor.description]
-    return [_enriquecer_proceso(dict(zip(columns,row))) for row in rows]
+    procesos = [_enriquecer_proceso(dict(zip(columns,row))) for row in rows]
+    if not incluir_privados:
+        procesos = [proceso for proceso in procesos if not es_proceso_privado(proceso)]
+    return procesos
 
 
 def obtener_proceso(proceso_id: int) -> dict[str, Any] | None:
