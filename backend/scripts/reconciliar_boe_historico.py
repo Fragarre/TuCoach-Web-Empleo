@@ -51,7 +51,8 @@ def main() -> int:
                        (SELECT MIN(pub.fecha_publicacion)
                         FROM publicaciones pub
                         JOIN fuentes fb ON fb.id=pub.fuente_id
-                        WHERE pub.proceso_id=p.id AND fb.tipo='BOP')
+                        WHERE pub.proceso_id=p.id AND fb.tipo='BOP'
+                          AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP'))
                    ) AS fecha_bases,
                    p.denominacion
             FROM procesos p
@@ -75,7 +76,8 @@ def main() -> int:
                     (SELECT MIN(pub.fecha_publicacion)
                      FROM publicaciones pub
                      JOIN fuentes fb ON fb.id=pub.fuente_id
-                     WHERE pub.proceso_id=p.id AND fb.tipo='BOP')
+                     WHERE pub.proceso_id=p.id AND fb.tipo='BOP'
+                       AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP'))
                   ) IS NOT NULL
               {filtro_id}
             ORDER BY fecha_bases,p.id
