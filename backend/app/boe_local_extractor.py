@@ -147,6 +147,24 @@ def _tipo_documento_boe(titulo: str, texto: str) -> str:
     return "CONVOCATORIA"
 
 
+def _extraer_resolucion_anterior(titulo: str, texto: str) -> dict[str, str] | None:
+    """Extrae la fecha de la resolución anterior citada por una anulación/rectificación."""
+    contexto = f"{titulo} {texto}"
+    m = re.search(
+        r"(?:deja\s+sin\s+efecto|correcci[oó]n\s+de\s+errores\s+de)\s+la\s+de\s+"
+        r"(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})",
+        contexto,
+        flags=re.I,
+    )
+    if not m:
+        return None
+    meses = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+    }
+    return {"fecha_resolucion": f"{int(m.group(3)):04d}-{meses[m.group(2).lower()]:02d}-{int(m.group(1)):02d}"}
+
+
 def _extraer_plazo_literal(texto: str) -> str | None:
     """Extrae fórmulas habituales del BOE sin interpretar todavía el cómputo."""
     patrones = (
