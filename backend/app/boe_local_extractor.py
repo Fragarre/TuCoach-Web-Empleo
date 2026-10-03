@@ -137,6 +137,16 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
     }
 
 
+def _tipo_documento_boe(titulo: str, texto: str) -> str:
+    """Clasifica eventos BOE que pueden alterar una convocatoria ya conocida."""
+    contexto = f"{titulo} {texto}".lower()
+    if re.search(r"\b(deja|dejar)\s+sin\s+efecto\b|\banula(?:r|da|do|ción)?\b", contexto, flags=re.I):
+        return "ANULACION"
+    if re.search(r"\bcorrecci[oó]n\s+de\s+errores\b|\brectificaci[oó]n\b", contexto, flags=re.I):
+        return "RECTIFICACION"
+    return "CONVOCATORIA"
+
+
 def _extraer_plazo_literal(texto: str) -> str | None:
     """Extrae fórmulas habituales del BOE sin interpretar todavía el cómputo."""
     patrones = (
@@ -228,7 +238,7 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                         "url_html": _texto_url(item.get("url_html")),
                         "url_xml": _texto_url(item.get("url_xml")),
                         "url_pdf": _texto_url(item.get("url_pdf")),
-                        "texto_plaza": plaza["texto_fuente"],
+                        "texto_plaza": plaza["texto_fuente"],\n                        "tipo_documento": tipo_documento,\n                        "titulo_boe": titulo,
                     })
             fecha += timedelta(days=1)
 
