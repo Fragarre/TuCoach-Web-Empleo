@@ -20,7 +20,7 @@ _SPEC.loader.exec_module(_MODULE)
 
 _familia = _MODULE._familia
 _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
-_nombres_entidad = _MODULE._nombres_entidad
+_nombres_entidad = _MODULE._nombres_entidad\n\n# El extractor se carga aparte para probar la clasificación documental BOE.\n_EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"\n_EXTRACTOR_SPEC = importlib.util.spec_from_file_location("app.boe_local_extractor", _EXTRACTOR_PATH)\nassert _EXTRACTOR_SPEC and _EXTRACTOR_SPEC.loader\n_EXTRACTOR = importlib.util.module_from_spec(_EXTRACTOR_SPEC)\n_EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR)\n_tipo_documento_boe = _EXTRACTOR._tipo_documento_boe
 
 
 class FamiliaBoeLocalTest(unittest.TestCase):
@@ -106,3 +106,32 @@ class CanalsMatchingRegressionTest(unittest.TestCase):
             _familia(proceso["denominacion"]),
         )
         self.assertEqual(_familia(boe["denominacion"]), "AUXILIAR_ADMINISTRATIVO")
+
+
+class TipoDocumentoBoeRegressionTest(unittest.TestCase):
+    def test_detecta_dejar_sin_efecto_como_anulacion(self) -> None:
+        self.assertEqual(
+            _tipo_documento_boe(
+                "Resolución referente a la convocatoria",
+                "Se deja sin efecto el anuncio publicado anteriormente.",
+            ),
+            "ANULACION",
+        )
+
+    def test_detecta_rectificacion(self) -> None:
+        self.assertEqual(
+            _tipo_documento_boe(
+                "Corrección de errores de la convocatoria",
+                "Corrección de errores de la Resolución anterior.",
+            ),
+            "RECTIFICACION",
+        )
+
+    def test_convocatoria_ordinaria_no_cambia(self) -> None:
+        self.assertEqual(
+            _tipo_documento_boe(
+                "Resolución referente a la convocatoria",
+                "Se convocan dos plazas de Auxiliar Administrativo.",
+            ),
+            "CONVOCATORIA",
+        )
