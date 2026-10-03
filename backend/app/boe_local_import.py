@@ -220,6 +220,9 @@ def _insertar_publicacion_boe(cursor, *, fuente_id: int, proceso_id: int, convoc
                 "boe_id": convocatoria.get("boe_id"),
                 "codigo_externo": codigo,
                 "bases_bop": convocatoria.get("bases_bop"),
+                "tipo_documento": convocatoria.get("tipo_documento") or "CONVOCATORIA",
+                "fecha_resolucion": convocatoria.get("fecha_resolucion"),
+                "resolucion_anterior": convocatoria.get("resolucion_anterior"),
             }),
         ),
     )
