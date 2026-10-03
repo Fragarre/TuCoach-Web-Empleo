@@ -19,6 +19,7 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
 _familia = _MODULE._familia
+_filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
 
 
 class FamiliaBoeLocalTest(unittest.TestCase):
@@ -39,3 +40,34 @@ class FamiliaBoeLocalTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VentanaRecuperacionBoeTest(unittest.TestCase):
+    def test_bases_antiguas_conservan_boe_reciente_de_la_extraccion(self) -> None:
+        extraccion = {
+            "detalle": [
+                {"boe_id": "ANTIGUO", "fecha_boe": "2026-03-01"},
+                {"boe_id": "RECIENTE", "fecha_boe": "2026-10-02"},
+            ],
+            "errores": [],
+        }
+
+        filtrada = _filtrar_extraccion_boe_desde(extraccion, __import__("datetime").date(2026, 4, 7))
+
+        self.assertEqual(
+            [item["boe_id"] for item in filtrada["detalle"]],
+            ["RECIENTE"],
+        )
+
+    def test_filtro_no_amplia_una_extraccion_incremental(self) -> None:
+        extraccion = {
+            "detalle": [
+                {"boe_id": "AYER", "fecha_boe": "2026-10-02"},
+                {"boe_id": "HOY", "fecha_boe": "2026-10-03"},
+            ],
+            "errores": [],
+        }
+
+        filtrada = _filtrar_extraccion_boe_desde(extraccion, __import__("datetime").date(2026, 4, 7))
+
+        self.assertEqual(filtrada["detalle"], extraccion["detalle"])
