@@ -226,7 +226,7 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
 def _estado_proceso_adc(etapa_actual: str | None) -> str:
     """Deriva actividad del ADC solo de evidencias oficiales inequívocas."""
     etapa = _sin_acentos(etapa_actual or "")
-    if "anulacion" in etapa or "anullacio" in etapa:
+    if "anulacion" in etapa or "anul·lacio" in etapa or "anullacio" in etapa:
         return "ANULADO"
     return "EN_CURSO"
 
