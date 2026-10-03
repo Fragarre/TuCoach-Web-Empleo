@@ -499,6 +499,7 @@ def importar_bop_alicante(
                         (proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,
                          url,datos_json,detectada_at)
                     VALUES (%s,%s,%s,'BOP',%s,%s,%s,%s,NOW())
+                    RETURNING id
                     """,
                     (
                         proceso_id,
@@ -510,7 +511,22 @@ def importar_bop_alicante(
                         Jsonb({"origen": "BOP_ALICANTE", "clase": clase}),
                     ),
                 )
+                publicacion_id = cursor.fetchone()["id"]
                 resultado["publicaciones"] += 1
+                if clase == "SEGUIMIENTO":
+                    cursor.execute(
+                        """
+                        INSERT INTO cambios
+                            (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo)
+                        VALUES (%s,%s,'PUBLICACION','publicacion',NULL,%s,%s,TRUE)
+                        """,
+                        (
+                            proceso_id,
+                            publicacion_id,
+                            hallazgo["referencia"],
+                            f"Nueva publicación oficial: {hallazgo['extracto']}",
+                        ),
+                    )
 
             resultado["detalle"].append({
                 "referencia": hallazgo["referencia"],
