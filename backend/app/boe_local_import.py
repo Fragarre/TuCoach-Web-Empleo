@@ -454,6 +454,22 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
 
     return resultado
 
+def _filtrar_extraccion_boe_desde(extraccion_boe: dict[str, Any], desde: date) -> dict[str, Any]:
+    """Recorta una extracción ya obtenida sin ampliar su ventana de consulta."""
+    desde_iso = desde.isoformat()
+    return {
+        **extraccion_boe,
+        "detalle": [
+            item for item in extraccion_boe["detalle"]
+            if item.get("fecha_boe") and item["fecha_boe"] >= desde_iso
+        ],
+        "errores": [
+            item for item in extraccion_boe["errores"]
+            if item.get("fecha") and item["fecha"] >= desde_iso
+        ],
+    }
+
+
 def recuperar_boe_para_proceso_bop(
     *,
     proceso_id: int,
@@ -473,17 +489,7 @@ def recuperar_boe_para_proceso_bop(
         extraccion = extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
     else:
         desde_proceso = hasta.fromordinal(hasta.toordinal() - dias + 1)
-        extraccion = {
-            **extraccion_boe,
-            "detalle": [
-                item for item in extraccion_boe["detalle"]
-                if item.get("fecha_boe") and item["fecha_boe"] >= desde_proceso.isoformat()
-            ],
-            "errores": [
-                item for item in extraccion_boe["errores"]
-                if item.get("fecha") and item["fecha"] >= desde_proceso.isoformat()
-            ],
-        }
+        extraccion = _filtrar_extraccion_boe_desde(extraccion_boe, desde_proceso)
 
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
