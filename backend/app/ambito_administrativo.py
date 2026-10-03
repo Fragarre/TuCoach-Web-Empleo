@@ -13,7 +13,7 @@ def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip().lower()
 
 
-def clasificar_ambito_administrativo(proceso: dict[str, Any]) -> str:
+def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos_gva: bool = False) -> str:
     """Clasificación automática conservadora para el catálogo de Tu Coach.
 
     Solo devuelve SI/NO cuando la denominación es suficientemente explícita.
@@ -28,7 +28,7 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any]) -> str:
     # denominación genérica ("administrativo", "tributario", etc.) no puede
     # convertir en SI un código GVA explícitamente distinto.
     codigos_gva = re.findall(r"\b[ac][12]-\d{2}\b", texto)
-    if codigos_gva:
+    if aplicar_codigos_gva and codigos_gva:
         return "SI" if any(c in {"a1-01", "a2-01", "c1-01", "c2-01"} for c in codigos_gva) else "NO"
 
     # Exclusiones claras. Se evalúan primero para evitar falsos positivos como
