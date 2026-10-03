@@ -43,6 +43,8 @@ def _nombres_entidad(entidad: str | None) -> set[str]:
 
 def _familia(denominacion: str | None) -> str | None:
     n = _sin(denominacion)
+    # Normaliza únicamente la errata BOE documentada "adminstrativo/a".
+    n = re.sub(r"\badminstr", "administr", n)
     # El BOE puede conservar erratas materiales de la convocatoria. Se
     # normaliza únicamente la omisión documentada de la "i" en
     # "adminstrativo/a" para no convertir el matching en aproximado.
@@ -401,13 +403,10 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                 if aplicar:
                     proceso_id = candidato["id"]
                     datos_boe = _datos_boe(convocatoria, codigo)
-                    fecha_apertura, fecha_cierre = _fechas_inscripcion_boe(convocatoria)
                     cursor.execute(
                         """
                         UPDATE procesos
                         SET datos_json = COALESCE(datos_json,'{}'::jsonb) || %s,
-                            fecha_apertura = COALESCE(%s::date, fecha_apertura),
-                            fecha_cierre = COALESCE(%s::date, fecha_cierre),
                             ultima_publicacion_at = GREATEST(
                                 COALESCE(ultima_publicacion_at, %s::date::timestamptz),
                                 %s::date::timestamptz
@@ -417,8 +416,6 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                         """,
                         (
                             Jsonb({"boe_local": datos_boe}),
-                            fecha_apertura,
-                            fecha_cierre,
                             convocatoria.get("fecha_boe"),
                             convocatoria.get("fecha_boe"),
                             proceso_id,
@@ -472,22 +469,19 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                     item["organismo_id"] = organismo["id"]
 
                 datos_proceso = _datos_boe(convocatoria, codigo)
-                fecha_apertura, fecha_cierre = _fechas_inscripcion_boe(convocatoria)
                 cursor.execute(
                     """
                     INSERT INTO procesos (
                         organismo_id,codigo_externo,identificador_estable,denominacion,plazas,
-                        sistema_selectivo,turno,estado,fecha_convocatoria,fecha_apertura,fecha_cierre,
-                        ultima_publicacion_at,fuente_principal_id,
+                        sistema_selectivo,turno,estado,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,
                         es_oportunidad,ambito_administrativo,datos_json,updated_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s::date,%s::date,%s::date::timestamptz,%s,TRUE,'SI',%s,NOW())
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s::date::timestamptz,%s,TRUE,'SI',%s,NOW())
                     RETURNING id
                     """,
                     (
                         organismo["id"], codigo, estable, convocatoria.get("denominacion"),
                         convocatoria.get("plazas"), convocatoria.get("sistema_selectivo"),
-                        convocatoria.get("turno"), convocatoria.get("fecha_boe"),
-                        fecha_apertura, fecha_cierre, convocatoria.get("fecha_boe"),
+                        convocatoria.get("turno"), convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"),
                         fuente_boe_id, Jsonb(datos_proceso),
                     ),
                 )
