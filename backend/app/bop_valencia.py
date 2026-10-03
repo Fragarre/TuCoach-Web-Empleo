@@ -28,7 +28,9 @@ INCLUIDOS = (
 EXCLUIDOS = (
     "provisión del puesto", "provision del puesto", "provisión de puestos",
     "provision de puestos", "provisión del lugar", "provision del lloc",
-    "provisió del lloc", "libre designación", "libre designacion",
+    "provisió del lloc", "concurs de mèrits per a la provisió",
+    "concurso de méritos para la provisión", "concurso de meritos para la provision",
+    "libre designación", "libre designacion",
     "lliure designació", "lliure designacio", "nomenament", "nombramiento",
 )
 
