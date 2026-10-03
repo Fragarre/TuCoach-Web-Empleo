@@ -1,7 +1,22 @@
+import importlib.util
+from pathlib import Path
+import sys
+import types
 import unittest
 from datetime import date
 
-from backend.app.bop_valencia import _cambios_base_existente
+
+APP_DIR = Path(__file__).resolve().parents[1] / "app"
+PKG = types.ModuleType("app")
+PKG.__path__ = [str(APP_DIR)]
+sys.modules.setdefault("app", PKG)
+
+_MODULE_PATH = APP_DIR / "bop_valencia.py"
+_SPEC = importlib.util.spec_from_file_location("app.bop_valencia", _MODULE_PATH)
+assert _SPEC and _SPEC.loader
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+_cambios_base_existente = _MODULE._cambios_base_existente
 
 
 class RefrescoBasesDiputacionValenciaTest(unittest.TestCase):
