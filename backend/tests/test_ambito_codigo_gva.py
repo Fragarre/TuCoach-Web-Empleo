@@ -14,20 +14,20 @@ class AmbitoCodigoGvaTest(unittest.TestCase):
     def test_codigos_objetivo(self):
         for codigo in ("A1-01", "A2-01", "C1-01", "C2-01"):
             self.assertEqual(
-                _MODULE.clasificar_ambito_administrativo({"denominacion": f"General {codigo}"}),
+                _MODULE.clasificar_ambito_administrativo({"denominacion": f"General {codigo}"}, aplicar_codigos_gva=True),
                 "SI",
             )
 
     def test_codigo_gva_no_objetivo_prevalece_sobre_nombre_generico(self):
         self.assertEqual(
             _MODULE.clasificar_ambito_administrativo(
-                {"denominacion": "Agentes tributarios C1-07 administrativo"}
+                {"denominacion": "Agentes tributarios C1-07 administrativo"}, aplicar_codigos_gva=True
             ),
             "NO",
         )
         self.assertEqual(
             _MODULE.clasificar_ambito_administrativo(
-                {"denominacion": "Técnico tributario A2-05 administración"}
+                {"denominacion": "Técnico tributario A2-05 administración"}, aplicar_codigos_gva=True
             ),
             "NO",
         )
