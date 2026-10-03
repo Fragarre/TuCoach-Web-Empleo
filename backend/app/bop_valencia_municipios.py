@@ -305,20 +305,6 @@ def importar_municipales_bop(*, hasta: date, dias: int = 30, aplicar: bool = Fal
                         updates.append("updated_at=NOW()")
                         params.append(proceso["id"])
                         cursor.execute(f"UPDATE procesos SET {','.join(updates)} WHERE id=%s", tuple(params))
-                    if publicacion_nueva:
-                        cursor.execute(
-                            """
-                            INSERT INTO cambios
-                                (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo)
-                            VALUES (%s,%s,'PUBLICACION','publicacion',NULL,%s,%s,TRUE)
-                            """,
-                            (
-                                proceso["id"],
-                                item["publicacion_id"],
-                                h["registro"],
-                                f"Nueva publicación oficial: {h['titulo']}",
-                            ),
-                        )
                     if not updates and not publicacion_nueva:
                         resultado["seguimientos_sin_cambios"] += 1
                         item["estado_importacion"] = "SIN_CAMBIOS"
