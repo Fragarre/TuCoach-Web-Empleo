@@ -138,7 +138,7 @@ def _buscar_proceso_evento_documental(cursor, *, organismo_nombre: str | None, p
         JOIN publicaciones pub ON pub.proceso_id=p.id
         JOIN fuentes f ON f.id=pub.fuente_id
         WHERE f.tipo='BOE'
-          AND pub.fecha_publicacion=%s
+          AND pub.datos_json->>'fecha_resolucion'=%s
         ORDER BY p.id
         """,
         (fecha,),

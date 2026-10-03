@@ -182,6 +182,7 @@ class _CursorEventoFake:
         self.params = None
 
     def execute(self, sql, params):
+        self.sql = sql
         self.params = params
 
     def fetchall(self):
@@ -213,6 +214,24 @@ class EventoDocumentalImportacionRegressionTest(unittest.TestCase):
         )
         self.assertEqual(len(candidatos), 1)
         self.assertEqual(candidatos[0]["id"], 123)
+        self.assertEqual(cursor.params, ("2026-01-21",))
+
+    def test_busca_por_fecha_resolucion_y_no_fecha_publicacion(self) -> None:
+        cursor = _CursorEventoFake([])
+        _buscar_proceso_evento_documental(
+            cursor,
+            organismo_nombre="Ayuntamiento de Orihuela",
+            provincia="Alicante",
+            resolucion_anterior={"fecha_resolucion": "2026-01-21"},
+        )
+        self.assertIn(
+            "pub.datos_json->>'fecha_resolucion'=%s",
+            cursor.sql,
+        )
+        self.assertNotIn(
+            "pub.fecha_publicacion=%s",
+            cursor.sql,
+        )
         self.assertEqual(cursor.params, ("2026-01-21",))
 
     def test_matching_provincia_con_acento(self) -> None:
