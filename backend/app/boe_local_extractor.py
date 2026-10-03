@@ -248,7 +248,8 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                 entidad = _extraer_entidad(titulo)
                 provincia = _extraer_provincia(titulo)
                 plazo_literal = _extraer_plazo_literal(texto)
-                fecha_resolucion = _extraer_fecha_resolucion_documento(titulo, texto)\n                resolucion_anterior = _extraer_resolucion_anterior(titulo, texto)
+                fecha_resolucion = _extraer_fecha_resolucion_documento(titulo, texto)
+                resolucion_anterior = _extraer_resolucion_anterior(titulo, texto)
 
                 plazas = []
                 for fragmento in _fragmentos_plazas(texto):
