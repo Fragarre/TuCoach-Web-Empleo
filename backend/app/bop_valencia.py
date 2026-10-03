@@ -341,7 +341,11 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     tipo_publicacion = _tipo_publicacion(titulo, texto)
                     es_base = tipo_publicacion == "CONVOCATORIA"
                     anio = _anio_convocatoria(contenido)
-                    fecha_convocatoria = _fecha_convocatoria(contenido)
+                    # Para el matching BOE la fecha de bases es la fecha de
+                    # publicación de la convocatoria en el BOP. Algunos anuncios
+                    # no repiten esa fecha dentro del texto y el extractor devolvía
+                    # NULL, dejando el proceso imposible de cruzar con el BOE.
+                    fecha_convocatoria = fecha if es_base else _fecha_convocatoria(contenido)
                     grupo, subgrupo = _grupo_subgrupo(contenido)
                     plazas = _plazas(contenido)
                     ultima = datetime.combine(fecha, datetime.min.time(), tzinfo=timezone.utc) if fecha else None
