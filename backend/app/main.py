@@ -141,7 +141,10 @@ def temario_proceso(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usua
 
 @app.get("/suscripciones")
 def suscripciones(usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> list[dict[str, Any]]:
-    return suscripciones_usuario(usuario.id)
+    items = suscripciones_usuario(usuario.id)
+    if _acceso_empleo(usuario).private_employment:
+        return items
+    return [item for item in items if not es_proceso_privado(item)]
 
 @app.get("/suscripciones/{proceso_id}")
 def suscripcion_proceso(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> dict[str, Any]:
@@ -161,7 +164,15 @@ def baja_suscripcion(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usu
 
 @app.get("/seguimiento/cambios")
 def seguimiento_cambios(limite: int = Query(default=100, ge=1, le=200), usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> list[dict[str, Any]]:
-    return cambios_usuario(usuario.id, limite=limite)
+    items = cambios_usuario(usuario.id, limite=limite)
+    if _acceso_empleo(usuario).private_employment:
+        return items
+    permitidos = {
+        item["proceso_id"]
+        for item in suscripciones_usuario(usuario.id)
+        if not es_proceso_privado(item)
+    }
+    return [item for item in items if item.get("proceso_id") in permitidos]
 
 @app.get("/seguimiento/estado")
 def seguimiento_estado(usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> dict[str, Any]:
