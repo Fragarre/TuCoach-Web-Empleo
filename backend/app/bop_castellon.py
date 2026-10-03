@@ -469,7 +469,7 @@ def preparar_importacion_bop_castellon(
                 continue
 
             identidad = _identidad_organismo(hallazgo.get("organismo"))
-            if identidad["tipo"] != "AYUNTAMIENTO":
+            if identidad["tipo"] not in ("AYUNTAMIENTO", "DIPUTACION"):
                 resultado["seguimientos_revision"] += 1
                 resultado["detalle"].append({
                     "referencia": hallazgo["referencia"],
@@ -483,10 +483,10 @@ def preparar_importacion_bop_castellon(
             municipio = identidad["municipio"]
             cursor.execute(
                 """
-                SELECT p.id,p.denominacion,p.codigo_externo,p.fecha_convocatoria,o.municipio,p.tipo_proceso
+                SELECT p.id,p.denominacion,p.codigo_externo,p.fecha_convocatoria,o.municipio,p.tipo_proceso,o.tipo AS organismo_tipo
                 FROM procesos p
                 JOIN organismos o ON o.id=p.organismo_id
-                WHERE o.tipo='AYUNTAMIENTO'
+                WHERE o.tipo=%s
                   AND LOWER(COALESCE(o.provincia,'')) IN ('castellón','castellon')
                   AND p.ambito_administrativo='SI'
                   AND p.estado='EN_CURSO'
@@ -494,11 +494,11 @@ def preparar_importacion_bop_castellon(
                   AND p.fecha_convocatoria <= %s
                 ORDER BY p.fecha_convocatoria DESC,p.id DESC
                 """,
-                (fecha_publicacion,),
+                (identidad["tipo"], fecha_publicacion),
             )
             candidatos = list(cursor.fetchall())
             hallazgo_matching = dict(hallazgo)
-            hallazgo_matching["denominacion"] = municipio
+            hallazgo_matching["denominacion"] = municipio or "Diputación Provincial de Castellón"
             hallazgo_matching["extracto"] = hallazgo.get("titulo") or ""
             proceso, motivo = seleccionar_proceso_seguimiento(
                 hallazgo_matching,
@@ -583,7 +583,7 @@ def importar_bop_castellon(
             identidad = _identidad_organismo(hallazgo.get("organismo"))
 
             if clase == "SEGUIMIENTO":
-                if identidad["tipo"] != "AYUNTAMIENTO":
+                if identidad["tipo"] not in ("AYUNTAMIENTO", "DIPUTACION"):
                     resultado["seguimientos_revision"] += 1
                     resultado["detalle"].append({
                         "referencia": hallazgo["referencia"],
@@ -596,10 +596,10 @@ def importar_bop_castellon(
 
                 cursor.execute(
                     """
-                    SELECT p.id,p.denominacion,p.codigo_externo,p.fecha_convocatoria,o.municipio,p.tipo_proceso
+                    SELECT p.id,p.denominacion,p.codigo_externo,p.fecha_convocatoria,o.municipio,p.tipo_proceso,o.tipo AS organismo_tipo
                     FROM procesos p
                     JOIN organismos o ON o.id=p.organismo_id
-                    WHERE o.tipo='AYUNTAMIENTO'
+                    WHERE o.tipo=%s
                       AND LOWER(COALESCE(o.provincia,'')) IN ('castellón','castellon')
                       AND p.ambito_administrativo='SI'
                       AND p.estado='EN_CURSO'
@@ -607,10 +607,10 @@ def importar_bop_castellon(
                       AND p.fecha_convocatoria <= %s
                     ORDER BY p.fecha_convocatoria DESC,p.id DESC
                     """,
-                    (fecha_publicacion,),
+                    (identidad["tipo"], fecha_publicacion),
                 )
                 hallazgo_matching = dict(hallazgo)
-                hallazgo_matching["denominacion"] = identidad["municipio"]
+                hallazgo_matching["denominacion"] = identidad["municipio"] or "Diputación Provincial de Castellón"
                 hallazgo_matching["extracto"] = hallazgo.get("titulo") or ""
                 proceso, motivo = seleccionar_proceso_seguimiento(
                     hallazgo_matching,
