@@ -84,9 +84,12 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
                     p.datos_json->'boe_local' IS NULL
                     OR p.datos_json->'boe_local_agregados' IS NOT NULL
                   )
-              AND p.datos_json->>'origen' IN (
-                    'BOP_VALENCIA','BOP_VALENCIA_MUNICIPAL','BOP_CASTELLON','BOP_ALICANTE',
-                    'DIPUTACION_ALICANTE_OTRAS'
+              AND (
+                    p.datos_json->>'origen' IN (
+                        'BOP_VALENCIA','BOP_VALENCIA_MUNICIPAL','BOP_CASTELLON','BOP_ALICANTE',
+                        'DIPUTACION_ALICANTE_OTRAS'
+                    )
+                    OR p.identificador_estable LIKE 'DVAL:%'
                   )
             ORDER BY p.id
             """
