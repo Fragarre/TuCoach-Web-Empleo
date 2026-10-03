@@ -25,5 +25,22 @@ class AmbitoPerfilesNoAdministrativosTest(unittest.TestCase):
                 )
 
 
+    def test_perfiles_tributarios_no_son_puestos_administrativos(self):
+        casos = (
+            "Oficial/a de Recaudación",
+            "Agente tributario",
+            "Técnico/a tributario",
+            "Gestión tributaria",
+            "Oficial de recaptació",
+            "Gestió tributària",
+        )
+        for denominacion in casos:
+            with self.subTest(denominacion=denominacion):
+                self.assertEqual(
+                    _MODULE.clasificar_ambito_administrativo({"denominacion": denominacion}),
+                    "NO",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
