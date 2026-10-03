@@ -567,7 +567,41 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
             )
             fila = cursor.fetchone()
             if fila:
-                actualizados.append({"id_emp": id_emp, "proceso_id": int(fila["id"])})
+                proceso_id = int(fila["id"])
+                actualizados.append({"id_emp": id_emp, "proceso_id": proceso_id})
+                etapa = datos.get("etapa_actual_gva") or datos.get("fase_gva") or "Actualización de bolsa"
+                referencia = f"GVA_BOLSA_ETAPA:{id_emp}:{datos.get('contenido_hash') or etapa}"
+                cursor.execute(
+                    """
+                    INSERT INTO publicaciones (
+                        proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,
+                        datos_json,detectada_at
+                    ) VALUES (%s,%s,%s,'BOLSA_ETAPA',%s,%s,%s,%s,NOW())
+                    ON CONFLICT (fuente_id,referencia,url) DO NOTHING
+                    RETURNING id
+                    """,
+                    (
+                        proceso_id,
+                        fuente_id,
+                        referencia,
+                        str(etapa),
+                        proceso.get("ultima_publicacion_at"),
+                        datos.get("url_detalle") or datos.get("url_oficial") or "",
+                        Jsonb({"origen": "GVA_BOLSA", "etapa_actual_gva": datos.get("etapa_actual_gva"), "fase_gva": datos.get("fase_gva")}),
+                    ),
+                )
+                publicacion = cursor.fetchone()
+                if publicacion:
+                    cursor.execute(
+                        """
+                        INSERT INTO cambios
+                            (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo)
+                        VALUES (%s,%s,'PUBLICACION','publicacion',NULL,%s,%s,TRUE)
+                        """,
+                        (proceso_id, publicacion["id"], referencia, f"Novedad en bolsa: {etapa}"),
+                    )
+
+        connection.commit()
 
     return {
         "modo": "APLICADO",
