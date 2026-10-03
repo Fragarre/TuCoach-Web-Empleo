@@ -497,6 +497,9 @@ def preparar_importacion_bop_castellon(
                 (identidad["tipo"], fecha_publicacion),
             )
             candidatos = list(cursor.fetchall())
+            if identidad["tipo"] == "DIPUTACION":
+                for candidato in candidatos:
+                    candidato["municipio"] = "Diputación Provincial de Castellón"
             hallazgo_matching = dict(hallazgo)
             hallazgo_matching["denominacion"] = municipio or "Diputación Provincial de Castellón"
             hallazgo_matching["extracto"] = hallazgo.get("titulo") or ""
@@ -609,12 +612,16 @@ def importar_bop_castellon(
                     """,
                     (identidad["tipo"], fecha_publicacion),
                 )
+                candidatos = list(cursor.fetchall())
+                if identidad["tipo"] == "DIPUTACION":
+                    for candidato in candidatos:
+                        candidato["municipio"] = "Diputación Provincial de Castellón"
                 hallazgo_matching = dict(hallazgo)
                 hallazgo_matching["denominacion"] = identidad["municipio"] or "Diputación Provincial de Castellón"
                 hallazgo_matching["extracto"] = hallazgo.get("titulo") or ""
                 proceso, motivo = seleccionar_proceso_seguimiento(
                     hallazgo_matching,
-                    list(cursor.fetchall()),
+                    candidatos,
                 )
                 if not proceso:
                     resultado["seguimientos_revision"] += 1
