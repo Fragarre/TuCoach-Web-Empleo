@@ -460,19 +460,22 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                     item["organismo_id"] = organismo["id"]
 
                 datos_proceso = _datos_boe(convocatoria, codigo)
+                fecha_apertura, fecha_cierre = _fechas_inscripcion_boe(convocatoria)
                 cursor.execute(
                     """
                     INSERT INTO procesos (
                         organismo_id,codigo_externo,identificador_estable,denominacion,plazas,
-                        sistema_selectivo,turno,estado,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,
+                        sistema_selectivo,turno,estado,fecha_convocatoria,fecha_apertura,fecha_cierre,
+                        ultima_publicacion_at,fuente_principal_id,
                         es_oportunidad,ambito_administrativo,datos_json,updated_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s::date::timestamptz,%s,TRUE,'SI',%s,NOW())
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s::date,%s::date,%s::date::timestamptz,%s,TRUE,'SI',%s,NOW())
                     RETURNING id
                     """,
                     (
                         organismo["id"], codigo, estable, convocatoria.get("denominacion"),
                         convocatoria.get("plazas"), convocatoria.get("sistema_selectivo"),
-                        convocatoria.get("turno"), convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"),
+                        convocatoria.get("turno"), convocatoria.get("fecha_boe"),
+                        fecha_apertura, fecha_cierre, convocatoria.get("fecha_boe"),
                         fuente_boe_id, Jsonb(datos_proceso),
                     ),
                 )
