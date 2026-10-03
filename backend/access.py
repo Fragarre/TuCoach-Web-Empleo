@@ -16,6 +16,13 @@ from auth import obtener_supabase_public_key, obtener_supabase_url
 
 ESTADOS_CON_ACCESO = {"active", "trialing", "past_due"}
 
+# Acceso temporal a Bolsas de trabajo y anuncios de difícil cobertura.
+# Se usan UUID de Supabase para que la autorización no dependa del correo.
+PRIVATE_EMPLOYMENT_USER_IDS = {
+    UUID("335c6064-b23a-4215-829f-782e955e484d"),
+    UUID("d2091861-f10d-4800-897c-c67c0da2bf68"),
+}
+
 _supabase_http = httpx.Client(
     timeout=10.0,
     limits=httpx.Limits(
@@ -32,6 +39,7 @@ class EmploymentAccess:
     authenticated: bool
     subscribed: bool
     employment_access: bool
+    private_employment: bool
 
 
 def obtener_acceso_employment(user_id: UUID, access_token: str) -> EmploymentAccess:
@@ -88,6 +96,7 @@ def obtener_acceso_employment(user_id: UUID, access_token: str) -> EmploymentAcc
         authenticated=True,
         subscribed=subscribed,
         employment_access=True,
+        private_employment=user_id in PRIVATE_EMPLOYMENT_USER_IDS,
     )
 
 
