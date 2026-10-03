@@ -74,7 +74,8 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
                         WHERE pub.proceso_id=p.id
                           AND fb.tipo='BOP'
                           AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP')
-                          AND LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%')
+                          AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'
+                               OR COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'))
                    ) AS fecha_bases
             FROM procesos p
             JOIN organismos o ON o.id=p.organismo_id
@@ -97,7 +98,8 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
                      WHERE pub.proceso_id=p.id
                        AND fb.tipo='BOP'
                        AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP')
-                          AND LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%')
+                          AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'
+                               OR COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'))
                   ) IS NOT NULL
               AND (
                     p.datos_json->'boe_local' IS NULL
