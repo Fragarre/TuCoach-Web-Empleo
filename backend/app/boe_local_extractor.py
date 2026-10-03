@@ -114,8 +114,11 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
         return None
     plazas = _numero_plazas(m.group(1))
     denominacion = m.group(2).strip()
+
+    # Normaliza una errata documentada en publicaciones BOE.
+    fragmento_clasificacion = re.sub(r"\badminstr", "administr", fragmento, flags=re.I)
     ambito = clasificar_ambito_administrativo(
-        {"denominacion": fragmento, "cuerpo_escala": None, "grupo": None}
+        {"denominacion": fragmento_clasificacion, "cuerpo_escala": None, "grupo": None}
     )
     sistema = None
     sm = re.search(r"por el sistema de\s+([^,.;]+)", fragmento, flags=re.I)
