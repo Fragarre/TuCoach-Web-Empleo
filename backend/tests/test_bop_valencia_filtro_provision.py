@@ -19,6 +19,24 @@ class BopValenciaFiltroProvisionTest(unittest.TestCase):
             with self.subTest(titulo=titulo):
                 self.assertFalse(_MODULE._incluido(titulo))
 
+    def test_clasificacion_ambito_diputacion(self):
+        administrativo = _MODULE.clasificar_ambito_administrativo(
+            {
+                "denominacion": "Convocatoria oposición libre para plazas de Administrativo/a",
+                "cuerpo_escala": None,
+                "grupo": None,
+            }
+        )
+        no_administrativo = _MODULE.clasificar_ambito_administrativo(
+            {
+                "denominacion": "Convocatoria oposición libre para plazas de Arquitecto/a",
+                "cuerpo_escala": None,
+                "grupo": None,
+            }
+        )
+
+        self.assertEqual(administrativo, "SI")
+        self.assertEqual(no_administrativo, "NO")
     def test_mantiene_oposicion_administrativa(self):
         self.assertTrue(_MODULE._incluido("Convocatoria oposición libre para 66 plazas de Administrativo/a"))
 

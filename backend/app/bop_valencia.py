@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 from .database import get_connection
 from .organismos import resolver_fuente, resolver_organismo
 from .estado_proceso import clasificar_evento_terminal
+from .ambito_administrativo import clasificar_ambito_administrativo
 
 BOP_URL = "https://bop.dival.es/bop/"
 BOP_PORTAL_URL = "https://bop.dival.es/bop/xhtml/portal.xhtml"
@@ -346,6 +347,14 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     registro = anuncio["registro"]
                     texto = _obtener_texto(client, anuncio["url"])
                     contenido = titulo + " " + texto
+                    ambito_administrativo = clasificar_ambito_administrativo(
+                        {
+                            "denominacion": contenido,
+                            "cuerpo_escala": None,
+                            "grupo": None,
+                        }
+                    )
+                    es_oportunidad = ambito_administrativo == "SI"
                     estable = _identificador_estable(titulo, texto)
                     tipo_publicacion = _tipo_publicacion(titulo, texto)
                     es_base = tipo_publicacion == "CONVOCATORIA"
@@ -369,7 +378,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             for campo, valor_anterior, valor_nuevo in _cambios_base_existente(existente, nuevos):
                                 cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(valor_anterior) if valor_anterior is not None else None, str(valor_nuevo), f"Actualización de la convocatoria: {campo}"))
                                 stats["cambios"] += 1
-                            cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=TRUE,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], ultima, fuente_id, Jsonb({**(existente[10] or {}), "origen": "BOP_VALENCIA", "url_convocatoria": anuncio["url"], "registro_convocatoria": registro}), proceso_id))
+                            cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=%s,ambito_administrativo=%s,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({**(existente[10] or {}), "origen": "BOP_VALENCIA", "url_convocatoria": anuncio["url"], "registro_convocatoria": registro}), proceso_id))
                         else:
                             estado_terminal = clasificar_evento_terminal(
                                 existente[4],
@@ -377,13 +386,13 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             )
                             if estado_terminal:
                                 cursor.execute(
-                                    "UPDATE procesos SET estado=%s,ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=TRUE,updated_at=NOW() WHERE id=%s",
+                                    "UPDATE procesos SET estado=%s,ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,updated_at=NOW() WHERE id=%s",
                                     (estado_terminal, ultima, fuente_id, proceso_id),
                                 )
                             else:
-                                cursor.execute("UPDATE procesos SET ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=TRUE,updated_at=NOW() WHERE id=%s", (ultima, fuente_id, proceso_id))
+                                cursor.execute("UPDATE procesos SET ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,updated_at=NOW() WHERE id=%s", (ultima, fuente_id, proceso_id))
                     else:
-                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido)})))
+                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido)})))
                         proceso_id = cursor.fetchone()[0]
                         stats["procesos"] += 1
                     contenido_hash = hashlib.sha256(texto.encode("utf-8")).hexdigest()
