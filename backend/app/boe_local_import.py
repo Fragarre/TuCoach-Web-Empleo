@@ -327,6 +327,45 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                     continue
 
                 candidato_evento = candidatos_evento[0]
+                estado_evento = "EVENTO_DOCUMENTAL_IDENTIFICADO"
+                if aplicar:
+                    datos_evento = {
+                        "origen": "BOE_LOCAL",
+                        "boe_id": convocatoria.get("boe_id"),
+                        "codigo_externo": codigo,
+                        "tipo_documento": tipo_documento,
+                        "fecha_resolucion": convocatoria.get("fecha_resolucion"),
+                        "resolucion_anterior": convocatoria.get("resolucion_anterior"),
+                        "fecha_boe": convocatoria.get("fecha_boe"),
+                        "url_html": convocatoria.get("url_html"),
+                        "url_xml": convocatoria.get("url_xml"),
+                        "url_pdf": convocatoria.get("url_pdf"),
+                    }
+                    cursor.execute(
+                        """
+                        UPDATE procesos
+                        SET datos_json = COALESCE(datos_json,'{}'::jsonb) || jsonb_build_object(
+                                'boe_local_eventos',
+                                COALESCE(datos_json->'boe_local_eventos','[]'::jsonb) || %s::jsonb
+                            ),
+                            estado = CASE WHEN %s = 'ANULACION' THEN 'ANULADO' ELSE estado END,
+                            ultima_publicacion_at = GREATEST(
+                                COALESCE(ultima_publicacion_at, %s::date::timestamptz),
+                                %s::date::timestamptz
+                            ),
+                            updated_at=NOW()
+                        WHERE id=%s
+                        """,
+                        (Jsonb(datos_evento), tipo_documento, convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"), candidato_evento["id"]),
+                    )
+                    _insertar_publicacion_boe(
+                        cursor,
+                        fuente_id=fuente_boe_id,
+                        proceso_id=candidato_evento["id"],
+                        convocatoria=convocatoria,
+                        codigo=codigo,
+                    )
+                    estado_evento = "EVENTO_DOCUMENTAL_APLICADO"
                 resultado["detalle"].append({
                     "codigo_externo": codigo,
                     "identificador_estable": estable,
@@ -335,7 +374,7 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                     "entidad": convocatoria.get("entidad"),
                     "tipo_documento": tipo_documento,
                     "proceso_id": candidato_evento["id"],
-                    "estado_importacion": "EVENTO_DOCUMENTAL_IDENTIFICADO",
+                    "estado_importacion": estado_evento,
                 })
                 resultado["eventos_documentales_revision"] += 1
                 continue
