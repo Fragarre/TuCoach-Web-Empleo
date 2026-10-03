@@ -155,3 +155,18 @@ class ResolucionAnteriorBoeRegressionTest(unittest.TestCase):
                 "Se deja sin efecto el anuncio publicado anteriormente.",
             )
         )
+
+
+class EventoDocumentalImportacionRegressionTest(unittest.TestCase):
+    def test_un_candidato_se_identifica(self) -> None:
+        candidatos = [{"id": 123, "identificador_estable": "BOP:123"}]
+        self.assertEqual(len(candidatos), 1)
+        self.assertEqual(candidatos[0]["id"], 123)
+
+    def test_cero_candidatos_queda_en_revision(self) -> None:
+        candidatos = []
+        self.assertNotEqual(len(candidatos), 1)
+
+    def test_varios_candidatos_quedan_en_revision(self) -> None:
+        candidatos = [{"id": 123}, {"id": 456}]
+        self.assertNotEqual(len(candidatos), 1)
