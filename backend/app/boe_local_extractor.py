@@ -138,12 +138,18 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
 
 
 def _extraer_plazo_literal(texto: str) -> str | None:
-    m = re.search(
-        r"(El plazo de presentaci[oó]n de solicitudes[^.]{0,350}\.)",
-        texto,
-        flags=re.I,
+    """Extrae fórmulas habituales del BOE sin interpretar todavía el cómputo."""
+    patrones = (
+        r"((?:El )?plazo de presentaci[oó]n de solicitudes[^.]{0,350}\.)",
+        r"((?:El )?plazo para (?:la )?presentaci[oó]n de solicitudes[^.]{0,350}\.)",
+        r"((?:El )?plazo para presentar solicitudes[^.]{0,350}\.)",
+        r"(Las solicitudes se presentar[aá]n[^.]{0,350}\.)",
     )
-    return m.group(1).strip() if m else None
+    for patron in patrones:
+        m = re.search(patron, texto, flags=re.I)
+        if m:
+            return m.group(1).strip()
+    return None
 
 
 def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30) -> dict[str, Any]:
