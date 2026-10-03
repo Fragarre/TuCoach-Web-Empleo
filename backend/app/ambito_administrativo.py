@@ -23,6 +23,14 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any]) -> str:
     """
     texto = _normalizar(" ".join(str(proceso.get(k) or "") for k in ("denominacion", "cuerpo_escala", "grupo")))
 
+    # En GVA los códigos de cuerpo son determinantes: solo se admiten los
+    # cuatro cuerpos administrativos generales definidos para Tu Coach. Una
+    # denominación genérica ("administrativo", "tributario", etc.) no puede
+    # convertir en SI un código GVA explícitamente distinto.
+    codigos_gva = re.findall(r"\b[ac][12]-\d{2}\b", texto)
+    if codigos_gva:
+        return "SI" if any(c in {"a1-01", "a2-01", "c1-01", "c2-01"} for c in codigos_gva) else "NO"
+
     # Exclusiones claras. Se evalúan primero para evitar falsos positivos como
     # "conserje-notificador, escala de administración general, subescala subalterna".
     patrones_no = (
