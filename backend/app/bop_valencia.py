@@ -115,6 +115,13 @@ def _fecha_convocatoria(s: str) -> date | None:
     return None
 
 
+def _fecha_bases(fecha_publicacion: date | None, contenido: str, es_base: bool) -> date | None:
+    """Fecha BOP que identifica las bases; en seguimientos conserva extracción textual."""
+    if es_base:
+        return fecha_publicacion
+    return _fecha_convocatoria(contenido)
+
+
 def _turno(s: str) -> str | None:
     n = _sin(s)
     if "estabilizacion" in n:
@@ -345,7 +352,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     # publicación de la convocatoria en el BOP. Algunos anuncios
                     # no repiten esa fecha dentro del texto y el extractor devolvía
                     # NULL, dejando el proceso imposible de cruzar con el BOE.
-                    fecha_convocatoria = fecha if es_base else _fecha_convocatoria(contenido)
+                    fecha_convocatoria = _fecha_bases(fecha, contenido, es_base)
                     grupo, subgrupo = _grupo_subgrupo(contenido)
                     plazas = _plazas(contenido)
                     ultima = datetime.combine(fecha, datetime.min.time(), tzinfo=timezone.utc) if fecha else None
