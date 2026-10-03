@@ -163,7 +163,7 @@ def _es_admin(titulo: str, texto: str) -> tuple[bool, list[str]]:
     nd = _sin(texto)
     codigos_detectados = sorted({
         codigo.upper()
-        for codigo in re.findall(r"\b[a-c]\d-\d{2}\b", nd, re.I)
+        for codigo in re.findall(r"\b[a-c]\d-\d{2}(?:-[a-z0-9]+)*\b", nd, re.I)
     })
     codigos = [codigo for codigo in codigos_detectados if codigo in CODIGOS_ADMIN]
     # En GVA un código explícito prevalece sobre una denominación genérica:

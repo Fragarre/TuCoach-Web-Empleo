@@ -27,7 +27,7 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos
     # cuatro cuerpos administrativos generales definidos para Tu Coach. Una
     # denominación genérica ("administrativo", "tributario", etc.) no puede
     # convertir en SI un código GVA explícitamente distinto.
-    codigos_gva = re.findall(r"\b[ac][12]-\d{2}\b", texto)
+    codigos_gva = re.findall(r"\b[ac][12]-\d{2}(?:-[a-z0-9]+)*\b", texto)
     if aplicar_codigos_gva and codigos_gva:
         return "SI" if any(c in {"a1-01", "a2-01", "c1-01", "c2-01"} for c in codigos_gva) else "NO"
 

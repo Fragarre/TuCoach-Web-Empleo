@@ -18,6 +18,15 @@ class AmbitoCodigoGvaTest(unittest.TestCase):
                 "SI",
             )
 
+    def test_codigo_gva_extendido_no_se_acepta_por_prefijo(self):
+        for codigo in ("A1-01-01", "A2-01-ES", "C1-01-02", "C2-01-X"):
+            self.assertEqual(
+                _MODULE.clasificar_ambito_administrativo(
+                    {"denominacion": f"Administrativo {codigo}"},
+                    aplicar_codigos_gva=True,
+                ),
+                "NO",
+            )
     def test_codigo_gva_no_objetivo_prevalece_sobre_nombre_generico(self):
         self.assertEqual(
             _MODULE.clasificar_ambito_administrativo(
