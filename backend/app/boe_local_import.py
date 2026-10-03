@@ -140,19 +140,11 @@ def _fechas_inscripcion_boe(convocatoria: dict[str, Any]) -> tuple[str | None, s
     if dias < 1:
         return None, None
     apertura = publicacion + timedelta(days=1)
-    if m.group(2) == "naturales":
-        cierre = publicacion + timedelta(days=dias)
-    else:
-        # Cómputo conservador de días hábiles: lunes-viernes. Festivos no se
-        # inventan; si las bases requieren calendario festivo debe resolverse
-        # documentalmente antes de persistir una fecha cerrada.
-        actual = publicacion
-        restantes = dias
-        while restantes:
-            actual += timedelta(days=1)
-            if actual.weekday() < 5:
-                restantes -= 1
-        cierre = actual
+    if m.group(2) != "naturales":
+        # Los días hábiles dependen del calendario oficial aplicable. Sin un
+        # calendario festivo fiable no persistimos una fecha potencialmente falsa.
+        return apertura.isoformat(), None
+    cierre = publicacion + timedelta(days=dias)
     return apertura.isoformat(), cierre.isoformat()
 
 
