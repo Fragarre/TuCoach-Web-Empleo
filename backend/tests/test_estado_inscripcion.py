@@ -66,3 +66,39 @@ class EstadoProcesoBolsaTest(unittest.TestCase):
             clasificar_evento_terminal("Bolsa de trabajo", "Anulación de la bolsa"),
             "ANULADO",
         )
+
+
+    def test_publicacion_de_seguimiento_ordinaria_no_finaliza(self) -> None:
+        self.assertIsNone(
+            clasificar_evento_terminal(
+                "Oposición",
+                "Relación definitiva de personas admitidas y fecha de examen",
+            )
+        )
+
+    def test_finalizacion_explicita_finaliza_proceso(self) -> None:
+        self.assertEqual(
+            clasificar_evento_terminal(
+                "Oposición",
+                "Anuncio sobre finalización del proceso selectivo",
+            ),
+            "FINALIZADO",
+        )
+
+    def test_nombramiento_finaliza_proceso(self) -> None:
+        self.assertEqual(
+            clasificar_evento_terminal(
+                "Oposición",
+                "Nombramiento como funcionario de carrera",
+            ),
+            "FINALIZADO",
+        )
+
+    def test_anulacion_finaliza_proceso_como_anulado(self) -> None:
+        self.assertEqual(
+            clasificar_evento_terminal(
+                "Oposición",
+                "Anulación de la convocatoria",
+            ),
+            "ANULADO",
+        )
