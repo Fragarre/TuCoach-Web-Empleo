@@ -14,6 +14,10 @@ class PeriodicBoePendientesSqlTest(unittest.TestCase):
         self.assertNotIn("AND p.fecha_convocatoria IS NOT NULL", texto)
         self.assertIn("LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'", texto)
         self.assertIn("COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'", texto)
+        self.assertIn("AND NOT EXISTS (", texto)
+        self.assertIn("JOIN fuentes fboe ON fboe.id=pboe.fuente_id", texto)
+        self.assertIn("AND fboe.tipo='BOE'", texto)
+        self.assertNotIn("p.datos_json->'boe_local' IS NULL", texto)
 
 
 if __name__ == "__main__":
