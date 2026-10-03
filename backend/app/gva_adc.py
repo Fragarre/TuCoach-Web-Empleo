@@ -595,6 +595,7 @@ def _publicacion_adc_en_bolsa(
             proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,
             datos_json,detectada_at
         ) VALUES (%s,%s,%s,'ADC_RELACIONADO',%s,%s,%s,%s,NOW())
+        RETURNING id
         """,
         (
             bolsa_id,
@@ -612,6 +613,15 @@ def _publicacion_adc_en_bolsa(
                 "huella_novedad": huella,
             }),
         ),
+    )
+    publicacion_id = cursor.fetchone()["id"]
+    cursor.execute(
+        """
+        INSERT INTO cambios
+            (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo)
+        VALUES (%s,%s,'PUBLICACION','publicacion',NULL,%s,%s,TRUE)
+        """,
+        (bolsa_id, publicacion_id, referencia, titulo),
     )
     return True
 
@@ -647,6 +657,7 @@ def _publicacion_etapa_adc(
             proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,
             datos_json,detectada_at
         ) VALUES (%s,%s,%s,'ADC_ETAPA',%s,%s,%s,%s,NOW())
+        RETURNING id
         """,
         (
             proceso_id,
@@ -663,6 +674,16 @@ def _publicacion_etapa_adc(
                 "huella_novedad": huella,
             }),
         ),
+    )
+    publicacion_id = cursor.fetchone()["id"]
+    titulo = f"ADC {adc.get('numero_adc') or adc['id_emp']}: {adc.get('etapa_actual_gva') or 'novedad'}"
+    cursor.execute(
+        """
+        INSERT INTO cambios
+            (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo)
+        VALUES (%s,%s,'PUBLICACION','publicacion',NULL,%s,%s,TRUE)
+        """,
+        (proceso_id, publicacion_id, referencia, titulo),
     )
     return True
 
