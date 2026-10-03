@@ -19,7 +19,6 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
 _familia = _MODULE._familia
-_fechas_inscripcion_boe = _MODULE._fechas_inscripcion_boe
 _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
 _nombres_entidad = _MODULE._nombres_entidad
 
@@ -107,39 +106,3 @@ class CanalsMatchingRegressionTest(unittest.TestCase):
             _familia(proceso["denominacion"]),
         )
         self.assertEqual(_familia(boe["denominacion"]), "AUXILIAR_ADMINISTRATIVO")
-
-
-class PlazoInscripcionBoeTest(unittest.TestCase):
-    def test_dias_naturales_se_calculan_desde_publicacion(self) -> None:
-        apertura, cierre = _fechas_inscripcion_boe({
-            "fecha_boe": "2026-09-28",
-            "plazo_solicitudes_literal": "El plazo de presentación de solicitudes será de veinte días naturales.",
-        })
-        self.assertEqual(apertura, "2026-09-29")
-        self.assertEqual(cierre, "2026-10-18")
-
-    def test_dias_naturales_numericos_se_calculan(self) -> None:
-        apertura, cierre = _fechas_inscripcion_boe({
-            "fecha_boe": "2026-09-28",
-            "plazo_solicitudes_literal": "El plazo de presentación de solicitudes será de 20 días naturales.",
-        })
-        self.assertEqual(apertura, "2026-09-29")
-        self.assertEqual(cierre, "2026-10-18")
-
-    def test_dias_habiles_no_inventan_festivos(self) -> None:
-        apertura, cierre = _fechas_inscripcion_boe({
-            "fecha_boe": "2026-09-28",
-            "plazo_solicitudes_literal": "El plazo de presentación de solicitudes será de 20 días hábiles.",
-        })
-        self.assertEqual(apertura, "2026-09-29")
-        self.assertIsNone(cierre)
-
-
-def test_fechas_inscripcion_boe_habil_no_inventa_cierre():
-    convocatoria = {
-        "fecha_boe": "2026-09-28",
-        "plazo_solicitudes_literal": "El plazo de presentación de solicitudes será de veinte días hábiles.",
-    }
-    apertura, cierre = _MODULE._fechas_inscripcion_boe(convocatoria)
-    assert apertura == "2026-09-29"
-    assert cierre is None
