@@ -198,6 +198,24 @@ def _bolsa_directa_actualizable(existente: dict[str, Any] | None, id_emp: int) -
         and str(datos.get("categoria_gva") or "").strip().upper() == "BOLSA"
     )
 
+def _bolsa_directa_cambia(existente: dict[str, Any], proceso: dict[str, Any]) -> bool:
+    """Compara solo los campos que este módulo está autorizado a refrescar."""
+    datos_previos = existente.get("datos_json") or {}
+    datos_nuevos = proceso.get("datos_json") or {}
+    return any((
+        existente.get("denominacion") != proceso.get("denominacion"),
+        existente.get("cuerpo_escala") != proceso.get("cuerpo_escala"),
+        existente.get("grupo") != proceso.get("grupo"),
+        existente.get("turno") != proceso.get("turno"),
+        existente.get("anio_convocatoria") != proceso.get("anio_convocatoria"),
+        proceso.get("fecha_apertura") is not None and existente.get("fecha_apertura") != proceso.get("fecha_apertura"),
+        proceso.get("fecha_cierre") is not None and existente.get("fecha_cierre") != proceso.get("fecha_cierre"),
+        proceso.get("ultima_publicacion_at") is not None and existente.get("ultima_publicacion_at") != proceso.get("ultima_publicacion_at"),
+        datos_previos.get("fase_gva") != datos_nuevos.get("fase_gva"),
+        datos_previos.get("etapa_actual_gva") != datos_nuevos.get("etapa_actual_gva"),
+        datos_previos.get("contenido_hash") != datos_nuevos.get("contenido_hash"),
+    ))
+
 
 def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     ids = [int(p["datos_json"]["id_emp"]) for p in candidatos]
@@ -378,23 +396,7 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
         id_emp = int(proceso["datos_json"]["id_emp"])
         existente = existentes.get(id_emp)
         actualizable = _bolsa_directa_actualizable(existente, id_emp)
-        cambia = False
-        if actualizable:
-            datos_previos = existente.get("datos_json") or {}
-            datos_nuevos = proceso.get("datos_json") or {}
-            cambia = any((
-                existente.get("denominacion") != proceso.get("denominacion"),
-                existente.get("cuerpo_escala") != proceso.get("cuerpo_escala"),
-                existente.get("grupo") != proceso.get("grupo"),
-                existente.get("turno") != proceso.get("turno"),
-                existente.get("anio_convocatoria") != proceso.get("anio_convocatoria"),
-                proceso.get("fecha_apertura") is not None and existente.get("fecha_apertura") != proceso.get("fecha_apertura"),
-                proceso.get("fecha_cierre") is not None and existente.get("fecha_cierre") != proceso.get("fecha_cierre"),
-                proceso.get("ultima_publicacion_at") is not None and existente.get("ultima_publicacion_at") != proceso.get("ultima_publicacion_at"),
-                datos_previos.get("fase_gva") != datos_nuevos.get("fase_gva"),
-                datos_previos.get("etapa_actual_gva") != datos_nuevos.get("etapa_actual_gva"),
-                datos_previos.get("contenido_hash") != datos_nuevos.get("contenido_hash"),
-            ))
+        cambia = bool(actualizable and _bolsa_directa_cambia(existente, proceso))
         accion = "NUEVA" if not existente else ("ACTUALIZAR" if cambia else "YA_EXISTE")
         acciones.append({
             "accion": accion,
@@ -474,7 +476,16 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
     ]
     actualizables = [
         p for p in candidatos
-        if _bolsa_directa_actualizable(existentes.get(int(p["datos_json"]["id_emp"])), int(p["datos_json"]["id_emp"]))
+        if (
+            _bolsa_directa_actualizable(
+                existentes.get(int(p["datos_json"]["id_emp"])),
+                int(p["datos_json"]["id_emp"]),
+            )
+            and _bolsa_directa_cambia(
+                existentes[int(p["datos_json"]["id_emp"])],
+                p,
+            )
+        )
     ]
 
     insertados: list[dict[str, Any]] = []
@@ -537,19 +548,7 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
                     fecha_cierre=COALESCE(%s,fecha_cierre),
                     ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),
                     datos_json=COALESCE(datos_json,'{}'::jsonb) || %s,
-                    updated_at=CASE
-                        WHEN denominacion IS DISTINCT FROM %s
-                          OR cuerpo_escala IS DISTINCT FROM %s
-                          OR grupo IS DISTINCT FROM %s
-                          OR turno IS DISTINCT FROM %s
-                          OR anio_convocatoria IS DISTINCT FROM %s
-                          OR (%s IS NOT NULL AND fecha_apertura IS DISTINCT FROM %s)
-                          OR (%s IS NOT NULL AND fecha_cierre IS DISTINCT FROM %s)
-                          OR (%s IS NOT NULL AND ultima_publicacion_at IS DISTINCT FROM %s)
-                          OR COALESCE(datos_json->>'fase_gva','') IS DISTINCT FROM COALESCE(%s->>'fase_gva','')
-                          OR COALESCE(datos_json->>'etapa_actual_gva','') IS DISTINCT FROM COALESCE(%s->>'etapa_actual_gva','')
-                          OR COALESCE(datos_json->>'contenido_hash','') IS DISTINCT FROM COALESCE(%s->>'contenido_hash','')
-                        THEN NOW() ELSE updated_at END
+                    updated_at=NOW()
                 WHERE id=%s AND identificador_estable=%s
                 RETURNING id, updated_at
                 """,
@@ -563,15 +562,6 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
                     proceso.get("fecha_cierre"),
                     proceso.get("ultima_publicacion_at"),
                     Jsonb(datos),
-                    proceso.get("denominacion"),
-                    proceso.get("cuerpo_escala"),
-                    proceso.get("grupo"),
-                    proceso.get("turno"),
-                    proceso.get("anio_convocatoria"),
-                    proceso.get("fecha_apertura"), proceso.get("fecha_apertura"),
-                    proceso.get("fecha_cierre"), proceso.get("fecha_cierre"),
-                    proceso.get("ultima_publicacion_at"), proceso.get("ultima_publicacion_at"),
-                    Jsonb(datos), Jsonb(datos), Jsonb(datos),
                     existente["id"], existente["identificador_estable"],
                 ),
             )
