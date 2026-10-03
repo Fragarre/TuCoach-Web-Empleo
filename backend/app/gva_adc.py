@@ -383,7 +383,7 @@ def planificar_adc_gva() -> dict[str, Any]:
         with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT id, identificador_estable, denominacion, cuerpo_escala, grupo, plazas, fecha_apertura, fecha_cierre, tipo_proceso, es_oportunidad, datos_json
+                SELECT id, identificador_estable, denominacion, cuerpo_escala, grupo, plazas, estado, fecha_apertura, fecha_cierre, tipo_proceso, es_oportunidad, datos_json
                 FROM procesos
                 WHERE identificador_estable = ANY(%s)
                    OR CASE
@@ -442,6 +442,7 @@ def planificar_adc_gva() -> dict[str, Any]:
                 existente.get("plazas") != adc["plazas"],
                 adc["fecha_apertura"] is not None and existente.get("fecha_apertura") != adc["fecha_apertura"],
                 adc["fecha_cierre"] is not None and existente.get("fecha_cierre") != adc["fecha_cierre"],
+                existente.get("estado") != adc["estado_proceso"],
                 datos_previos.get("estado_plazo") != adc["estado_plazo"],
                 datos_previos.get("accionable") != adc["accionable"],
                 datos_previos.get("bolsas_relacionadas") != adc["bolsas_relacionadas"],
