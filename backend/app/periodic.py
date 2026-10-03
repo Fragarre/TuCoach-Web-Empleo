@@ -114,6 +114,7 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
                         'DIPUTACION_ALICANTE_OTRAS'
                     )
                     OR p.identificador_estable LIKE 'DVAL:%'
+                    OR p.identificador_estable LIKE 'AVAL:%'
                   )
             ORDER BY p.id
             """
