@@ -126,20 +126,23 @@ def _buscar_proceso_evento_documental(cursor, *, organismo_nombre: str | None, p
     fecha = resolucion_anterior.get("fecha_resolucion")
     if not fecha:
         return []
+    nombres = _nombres_entidad(organismo_nombre)
+    if not nombres:
+        return []
     cursor.execute(
         """
-        SELECT DISTINCT p.id,p.identificador_estable,p.denominacion,p.estado
+        SELECT DISTINCT p.id,p.identificador_estable,p.denominacion,p.estado,o.nombre AS organismo_nombre
         FROM procesos p
         JOIN organismos o ON o.id=p.organismo_id
         JOIN publicaciones pub ON pub.proceso_id=p.id
         JOIN fuentes f ON f.id=pub.fuente_id
         WHERE f.tipo='BOE'
-          AND o.provincia=%s
-          AND _sin_placeholder_organismo_ = _sin_placeholder_organismo_
+          AND _sin_o_nombre_ = ANY(%s)
+          AND _sin_o_provincia_ = %s
           AND pub.fecha_publicacion=%s
         ORDER BY p.id
-        """.replace("_sin_placeholder_organismo_ = _sin_placeholder_organismo_", "LOWER(o.nombre)=LOWER(%s)"),
-        (provincia, organismo_nombre, fecha),
+        """.replace("_sin_o_nombre_", "LOWER(o.nombre)").replace("_sin_o_provincia_", "LOWER(o.provincia)"),
+        (list(nombres), _sin(provincia), fecha),
     )
     return list(cursor.fetchall())
 
