@@ -131,20 +131,26 @@ def _buscar_proceso_evento_documental(cursor, *, organismo_nombre: str | None, p
         return []
     cursor.execute(
         """
-        SELECT DISTINCT p.id,p.identificador_estable,p.denominacion,p.estado,o.nombre AS organismo_nombre
+        SELECT DISTINCT p.id,p.identificador_estable,p.denominacion,p.estado,
+                        o.nombre AS organismo_nombre,o.provincia AS organismo_provincia
         FROM procesos p
         JOIN organismos o ON o.id=p.organismo_id
         JOIN publicaciones pub ON pub.proceso_id=p.id
         JOIN fuentes f ON f.id=pub.fuente_id
         WHERE f.tipo='BOE'
-          AND _sin_o_nombre_ = ANY(%s)
-          AND _sin_o_provincia_ = %s
           AND pub.fecha_publicacion=%s
         ORDER BY p.id
-        """.replace("_sin_o_nombre_", "LOWER(o.nombre)").replace("_sin_o_provincia_", "LOWER(o.provincia)"),
-        (list(nombres), _sin(provincia), fecha),
+        """,
+        (fecha,),
     )
-    return list(cursor.fetchall())
+    provincia_normalizada = _sin(provincia)
+    return [
+        proceso
+        for proceso in cursor.fetchall()
+        if _sin(proceso.get("organismo_nombre")) in nombres
+        and _sin(proceso.get("organismo_provincia")) == provincia_normalizada
+    ]
+
 
 def _estado_despues_evento_documental(tipo_documento: str, estado_actual: str | None) -> str | None:
     """Determina el estado del proceso sin alterar estados por una rectificación."""

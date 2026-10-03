@@ -197,7 +197,14 @@ class EstadoEventoDocumentalRegressionTest(unittest.TestCase):
 
 class EventoDocumentalImportacionRegressionTest(unittest.TestCase):
     def test_un_candidato_se_identifica(self) -> None:
-        cursor = _CursorEventoFake([{"id": 123, "identificador_estable": "BOP:123"}])
+        cursor = _CursorEventoFake(
+            [{
+                "id": 123,
+                "identificador_estable": "BOP:123",
+                "organismo_nombre": "Ayuntamiento de Orihuela",
+                "organismo_provincia": "Alicante",
+            }]
+        )
         candidatos = _buscar_proceso_evento_documental(
             cursor,
             organismo_nombre="Ayuntamiento de Orihuela",
@@ -206,7 +213,25 @@ class EventoDocumentalImportacionRegressionTest(unittest.TestCase):
         )
         self.assertEqual(len(candidatos), 1)
         self.assertEqual(candidatos[0]["id"], 123)
-        self.assertEqual(cursor.params[1], "alicante")
+        self.assertEqual(cursor.params, ("2026-01-21",))
+
+    def test_matching_provincia_con_acento(self) -> None:
+        cursor = _CursorEventoFake(
+            [{
+                "id": 456,
+                "identificador_estable": "BOP:456",
+                "organismo_nombre": "Ayuntamiento de Castelló",
+                "organismo_provincia": "Castellón",
+            }]
+        )
+        candidatos = _buscar_proceso_evento_documental(
+            cursor,
+            organismo_nombre="Ayuntamiento de Castelló",
+            provincia="Castellon",
+            resolucion_anterior={"fecha_resolucion": "2026-01-21"},
+        )
+        self.assertEqual(len(candidatos), 1)
+        self.assertEqual(candidatos[0]["id"], 456)
 
     def test_cero_candidatos_queda_en_revision(self) -> None:
         candidatos = []
