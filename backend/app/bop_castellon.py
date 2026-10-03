@@ -483,7 +483,7 @@ def preparar_importacion_bop_castellon(
             municipio = identidad["municipio"]
             cursor.execute(
                 """
-                SELECT p.id,p.denominacion,p.codigo_externo,p.fecha_convocatoria,o.municipio
+                SELECT p.id,p.denominacion,p.codigo_externo,p.fecha_convocatoria,o.municipio,p.tipo_proceso
                 FROM procesos p
                 JOIN organismos o ON o.id=p.organismo_id
                 WHERE o.tipo='AYUNTAMIENTO'
