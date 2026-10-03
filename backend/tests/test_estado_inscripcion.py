@@ -12,6 +12,7 @@ assert _SPEC and _SPEC.loader
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 estado_inscripcion = _MODULE.estado_inscripcion
+clasificar_evento_terminal = _MODULE.clasificar_evento_terminal
 
 
 class EstadoInscripcionTest(unittest.TestCase):
@@ -40,4 +41,28 @@ class EstadoInscripcionTest(unittest.TestCase):
         self.assertEqual(
             estado_inscripcion({"datos_json": {"origen": "BOP_VALENCIA_MUNICIPAL"}}),
             {"codigo": "PENDIENTE_BOE"},
+        )
+
+
+class EstadoProcesoBolsaTest(unittest.TestCase):
+    def test_constitucion_bolsa_no_finaliza_su_vigencia(self) -> None:
+        self.assertIsNone(
+            clasificar_evento_terminal(
+                "Bolsa de trabajo",
+                "Constitución de bolsa de trabajo de administrativos",
+            )
+        )
+
+    def test_aprobacion_definitiva_bolsa_no_finaliza_su_vigencia(self) -> None:
+        self.assertIsNone(
+            clasificar_evento_terminal(
+                "Bolsa de trabajo",
+                "Aprobación definitiva de la bolsa de auxiliares administrativos",
+            )
+        )
+
+    def test_anulacion_sigue_siendo_terminal_para_bolsa(self) -> None:
+        self.assertEqual(
+            clasificar_evento_terminal("Bolsa de trabajo", "Anulación de la bolsa"),
+            "ANULADO",
         )
