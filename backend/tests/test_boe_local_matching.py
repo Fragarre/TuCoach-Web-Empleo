@@ -21,6 +21,7 @@ _SPEC.loader.exec_module(_MODULE)
 _familia = _MODULE._familia
 _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
 _nombres_entidad = _MODULE._nombres_entidad\n\n# El extractor se carga aparte para probar la clasificación documental BOE.\n_EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"\n_EXTRACTOR_SPEC = importlib.util.spec_from_file_location("app.boe_local_extractor", _EXTRACTOR_PATH)\nassert _EXTRACTOR_SPEC and _EXTRACTOR_SPEC.loader\n_EXTRACTOR = importlib.util.module_from_spec(_EXTRACTOR_SPEC)\n_EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR)\n_tipo_documento_boe = _EXTRACTOR._tipo_documento_boe
+_extraer_resolucion_anterior = _EXTRACTOR._extraer_resolucion_anterior
 
 
 class FamiliaBoeLocalTest(unittest.TestCase):
@@ -134,4 +135,23 @@ class TipoDocumentoBoeRegressionTest(unittest.TestCase):
                 "Se convocan dos plazas de Auxiliar Administrativo.",
             ),
             "CONVOCATORIA",
+        )
+
+
+class ResolucionAnteriorBoeRegressionTest(unittest.TestCase):
+    def test_extrae_fecha_de_resolucion_anulada(self) -> None:
+        self.assertEqual(
+            _extraer_resolucion_anterior(
+                "Resolución referente a la convocatoria",
+                "Se deja sin efecto la de 21 de enero de 2026, referente a la convocatoria.",
+            ),
+            {"fecha_resolucion": "2026-01-21"},
+        )
+
+    def test_no_inventa_referencia_si_no_esta_expresada(self) -> None:
+        self.assertIsNone(
+            _extraer_resolucion_anterior(
+                "Resolución referente a la convocatoria",
+                "Se deja sin efecto el anuncio publicado anteriormente.",
+            )
         )
