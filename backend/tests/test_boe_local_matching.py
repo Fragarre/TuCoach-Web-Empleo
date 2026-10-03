@@ -20,6 +20,7 @@ _SPEC.loader.exec_module(_MODULE)
 
 _familia = _MODULE._familia
 _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
+_nombres_entidad = _MODULE._nombres_entidad
 
 
 class FamiliaBoeLocalTest(unittest.TestCase):
@@ -71,3 +72,37 @@ class VentanaRecuperacionBoeTest(unittest.TestCase):
         filtrada = _filtrar_extraccion_boe_desde(extraccion, __import__("datetime").date(2026, 4, 7))
 
         self.assertEqual(filtrada["detalle"], extraccion["detalle"])
+
+
+class CanalsMatchingRegressionTest(unittest.TestCase):
+    def test_canals_bop_y_boe_documentado_cumplen_matching_estricto(self) -> None:
+        proceso = {
+            "organismo_nombre": "Ayuntamiento de Canals",
+            "provincia": "Valencia",
+            "fecha_convocatoria": "2026-09-08",
+            "denominacion": (
+                "Anunci de l'Ajuntament de Canals sobre l'aprovació de les bases "
+                "de la convocatòria, mitjançant torn lliure i pel sistema de concurs "
+                "oposició, per a diverses places d'auxiliar administratiu/va."
+            ),
+        }
+        boe = {
+            "boe_id": "BOE-A-2026-20049",
+            "fecha_boe": "2026-09-28",
+            "provincia": "Valencia",
+            "entidad": "Ayuntamiento de Canals",
+            "denominacion": "Auxiliar Adminstrativo/a",
+            "bases_bop": {"fecha": "2026-09-08"},
+        }
+
+        self.assertEqual(boe["provincia"], proceso["provincia"])
+        self.assertEqual(boe["bases_bop"]["fecha"], proceso["fecha_convocatoria"])
+        self.assertIn(
+            _MODULE._sin(proceso["organismo_nombre"]),
+            _nombres_entidad(boe["entidad"]),
+        )
+        self.assertEqual(
+            _familia(boe["denominacion"]),
+            _familia(proceso["denominacion"]),
+        )
+        self.assertEqual(_familia(boe["denominacion"]), "AUXILIAR_ADMINISTRATIVO")
