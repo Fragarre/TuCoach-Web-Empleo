@@ -213,7 +213,6 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         lambda: importar_bop_castellon(
             desde=desde,
             hasta=fecha_hoy,
-            dias=dias_solape,
             aplicar=aplicar,
         ),
     )
