@@ -301,6 +301,27 @@ def _resolver_identidad_bop_valencia(cursor) -> tuple[int, int]:
     return organismo["id"], fuente["id"]
 
 
+def _cambios_base_existente(existente: tuple[Any, ...], nuevos: tuple[Any, ...]) -> list[tuple[str, Any, Any]]:
+    """Compara metadatos de bases sin permitir que su relectura altere el estado."""
+    campos = (
+        ("denominacion", 1, 0),
+        ("grupo", 2, 1),
+        ("subgrupo", 3, 2),
+        ("tipo_proceso", 4, 3),
+        ("turno", 5, 4),
+        ("plazas", 6, 5),
+        ("anio_convocatoria", 8, 6),
+        ("fecha_convocatoria", 9, 7),
+    )
+    cambios: list[tuple[str, Any, Any]] = []
+    for campo, indice_existente, indice_nuevo in campos:
+        valor_nuevo = nuevos[indice_nuevo]
+        valor_anterior = existente[indice_existente]
+        if valor_anterior != valor_nuevo and valor_nuevo is not None:
+            cambios.append((campo, valor_anterior, valor_nuevo))
+    return cambios
+
+
 def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, Any]:
     stats: dict[str, Any] = {"descubiertos": 0, "procesos": 0, "publicaciones": 0, "cambios": 0, "anuncios": []}
     headers = {"User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)", "Accept-Language": "es-ES,es;q=0.9"}
@@ -332,22 +353,9 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             # Releer las bases puede refrescar metadatos, pero no debe
                             # reabrir un proceso que una publicación posterior cerró.
                             nuevos = (titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, anio, fecha_convocatoria)
-                            campos = (
-                                ("denominacion", 1, 0),
-                                ("grupo", 2, 1),
-                                ("subgrupo", 3, 2),
-                                ("tipo_proceso", 4, 3),
-                                ("turno", 5, 4),
-                                ("plazas", 6, 5),
-                                ("anio_convocatoria", 8, 6),
-                                ("fecha_convocatoria", 9, 7),
-                            )
-                            for campo, indice_existente, indice_nuevo in campos:
-                                valor_nuevo = nuevos[indice_nuevo]
-                                valor_anterior = existente[indice_existente]
-                                if valor_anterior != valor_nuevo and valor_nuevo is not None:
-                                    cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(valor_anterior) if valor_anterior is not None else None, str(valor_nuevo), f"Actualización de la convocatoria: {campo}"))
-                                    stats["cambios"] += 1
+                            for campo, valor_anterior, valor_nuevo in _cambios_base_existente(existente, nuevos):
+                                cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(valor_anterior) if valor_anterior is not None else None, str(valor_nuevo), f"Actualización de la convocatoria: {campo}"))
+                                stats["cambios"] += 1
                             cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=TRUE,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], ultima, fuente_id, Jsonb({**(existente[10] or {}), "url_convocatoria": anuncio["url"], "registro_convocatoria": registro}), proceso_id))
                         else:
                             estado_terminal = clasificar_evento_terminal(
