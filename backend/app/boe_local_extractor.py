@@ -147,6 +147,24 @@ def _tipo_documento_boe(titulo: str, texto: str) -> str:
     return "CONVOCATORIA"
 
 
+def _extraer_fecha_resolucion_documento(titulo: str, texto: str) -> str | None:
+    """Extrae la fecha de la resolución que origina el anuncio BOE, si consta expresamente."""
+    contexto = f"{titulo} {texto}"
+    m = re.search(
+        r"Resoluci[oó]n\s+de\s+(\d{1,2})\s+de\s+"
+        r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})",
+        contexto,
+        flags=re.I,
+    )
+    if not m:
+        return None
+    meses = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+    }
+    return f"{int(m.group(3)):04d}-{meses[m.group(2).lower()]:02d}-{int(m.group(1)):02d}"
+
+
 def _extraer_resolucion_anterior(titulo: str, texto: str) -> dict[str, str] | None:
     """Extrae la fecha de la resolución anterior citada por una anulación/rectificación."""
     contexto = f"{titulo} {texto}"
@@ -230,7 +248,7 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                 entidad = _extraer_entidad(titulo)
                 provincia = _extraer_provincia(titulo)
                 plazo_literal = _extraer_plazo_literal(texto)
-                resolucion_anterior = _extraer_resolucion_anterior(titulo, texto)
+                fecha_resolucion = _extraer_fecha_resolucion_documento(titulo, texto)\n                resolucion_anterior = _extraer_resolucion_anterior(titulo, texto)
 
                 plazas = []
                 for fragmento in _fragmentos_plazas(texto):
@@ -253,8 +271,7 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                             "ambito_administrativo": None,
                             "bases_bop": bases_bop,
                             "plazo_solicitudes_literal": plazo_literal,
-                            "tipo_documento": tipo_documento,
-                            "resolucion_anterior": resolucion_anterior,
+                            "tipo_documento": tipo_documento,\n                            "fecha_resolucion": fecha_resolucion,\n                            "resolucion_anterior": resolucion_anterior,
                             "titulo_boe": titulo,
                             "url_html": _texto_url(item.get("url_html")),
                             "url_xml": _texto_url(item.get("url_xml")),
