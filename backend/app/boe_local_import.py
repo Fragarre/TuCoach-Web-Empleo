@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -120,6 +120,40 @@ def _candidatos_bop(
 
 def _es_turno_interno(turno: str | None) -> bool:
     return "promocion interna" in _sin(turno)
+
+
+def _fechas_inscripcion_boe(convocatoria: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Calcula solo plazos BOE inequívocos expresados en días hábiles o naturales."""
+    fecha_boe = convocatoria.get("fecha_boe")
+    literal = convocatoria.get("plazo_solicitudes_literal")
+    if not fecha_boe or not literal:
+        return None, None
+    try:
+        publicacion = date.fromisoformat(str(fecha_boe))
+    except ValueError:
+        return None, None
+    n = _sin(str(literal))
+    m = re.search(r"\b(\d{1,3})\s+dias?\s+(habiles|naturales)\b", n)
+    if not m:
+        return None, None
+    dias = int(m.group(1))
+    if dias < 1:
+        return None, None
+    apertura = publicacion + timedelta(days=1)
+    if m.group(2) == "naturales":
+        cierre = publicacion + timedelta(days=dias)
+    else:
+        # Cómputo conservador de días hábiles: lunes-viernes. Festivos no se
+        # inventan; si las bases requieren calendario festivo debe resolverse
+        # documentalmente antes de persistir una fecha cerrada.
+        actual = publicacion
+        restantes = dias
+        while restantes:
+            actual += timedelta(days=1)
+            if actual.weekday() < 5:
+                restantes -= 1
+        cierre = actual
+    return apertura.isoformat(), cierre.isoformat()
 
 
 def _datos_boe(convocatoria: dict[str, Any], codigo: str) -> dict[str, Any]:
@@ -642,6 +676,7 @@ def recuperar_boe_para_proceso_bop(
 
         convocatoria = candidatos[0]
         codigo = convocatoria["codigo_externo"]
+        fecha_apertura, fecha_cierre = _fechas_inscripcion_boe(convocatoria)
         if not aplicar:
             connection.rollback()
             return {
@@ -659,6 +694,8 @@ def recuperar_boe_para_proceso_bop(
             """
             UPDATE procesos
             SET datos_json = COALESCE(datos_json,'{}'::jsonb) || %s,
+                fecha_apertura = COALESCE(%s::date, fecha_apertura),
+                fecha_cierre = COALESCE(%s::date, fecha_cierre),
                 ultima_publicacion_at = GREATEST(
                     COALESCE(ultima_publicacion_at, %s::date::timestamptz),
                     %s::date::timestamptz
@@ -666,7 +703,7 @@ def recuperar_boe_para_proceso_bop(
                 updated_at=NOW()
             WHERE id=%s
             """,
-            (Jsonb({"boe_local": datos_boe}), convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"), proceso_id),
+            (Jsonb({"boe_local": datos_boe}), fecha_apertura, fecha_cierre, convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"), proceso_id),
         )
         creada = _insertar_publicacion_boe(
             cursor, fuente_id=fuente_boe["id"], proceso_id=proceso_id,
