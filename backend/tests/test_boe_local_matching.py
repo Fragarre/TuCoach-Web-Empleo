@@ -198,3 +198,9 @@ class EventoDocumentalImportacionRegressionTest(unittest.TestCase):
     def test_varios_candidatos_quedan_en_revision(self) -> None:
         candidatos = [{"id": 123}, {"id": 456}]
         self.assertNotEqual(len(candidatos), 1)
+
+
+class EstadoEventoHelperIntegrationTest(unittest.TestCase):
+    def test_anulacion_y_rectificacion_se_distinguen(self) -> None:
+        self.assertEqual(_estado_despues_evento_documental("ANULACION", "ABIERTO"), "ANULADO")
+        self.assertEqual(_estado_despues_evento_documental("RECTIFICACION", "ABIERTO"), "ABIERTO")
