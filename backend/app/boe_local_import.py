@@ -119,6 +119,30 @@ def _candidatos_bop(
     return resultado
 
 
+def _buscar_proceso_evento_documental(cursor, *, organismo_nombre: str | None, provincia: str | None, resolucion_anterior: dict[str, str] | None) -> list[dict[str, Any]]:
+    """Busca el proceso al que apunta una resolución anterior, sin heurística de categoría."""
+    if not organismo_nombre or not provincia or not resolucion_anterior:
+        return []
+    fecha = resolucion_anterior.get("fecha_resolucion")
+    if not fecha:
+        return []
+    cursor.execute(
+        """
+        SELECT DISTINCT p.id,p.identificador_estable,p.denominacion,p.estado
+        FROM procesos p
+        JOIN organismos o ON o.id=p.organismo_id
+        JOIN publicaciones pub ON pub.proceso_id=p.id
+        JOIN fuentes f ON f.id=pub.fuente_id
+        WHERE f.tipo='BOE'
+          AND o.provincia=%s
+          AND _sin_placeholder_organismo_ = _sin_placeholder_organismo_
+          AND pub.fecha_publicacion=%s
+        ORDER BY p.id
+        """.replace("_sin_placeholder_organismo_ = _sin_placeholder_organismo_", "LOWER(o.nombre)=LOWER(%s)"),
+        (provincia, organismo_nombre, fecha),
+    )
+    return list(cursor.fetchall())
+
 def _es_turno_interno(turno: str | None) -> bool:
     return "promocion interna" in _sin(turno)
 
