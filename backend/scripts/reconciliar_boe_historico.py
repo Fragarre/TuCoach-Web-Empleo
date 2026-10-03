@@ -45,12 +45,19 @@ def main() -> int:
             params.append(args.proceso_id)
         cursor.execute(
             f"""
-            SELECT p.id,p.identificador_estable,p.fecha_convocatoria,p.denominacion
+            SELECT p.id,p.identificador_estable,
+                   COALESCE(
+                       p.fecha_convocatoria,
+                       (SELECT MIN(pub.fecha_publicacion)
+                        FROM publicaciones pub
+                        JOIN fuentes fb ON fb.id=pub.fuente_id
+                        WHERE pub.proceso_id=p.id AND fb.tipo='BOP')
+                   ) AS fecha_bases,
+                   p.denominacion
             FROM procesos p
             WHERE p.es_oportunidad=TRUE
               AND p.ambito_administrativo='SI'
               AND p.estado NOT IN ('FINALIZADO','ANULADO','DESISTIDO')
-              AND p.fecha_convocatoria IS NOT NULL
               AND (
                     p.datos_json->>'origen' IN (
                         'BOP_VALENCIA','BOP_VALENCIA_MUNICIPAL','BOP_CASTELLON',
@@ -63,8 +70,15 @@ def main() -> int:
                     JOIN fuentes f ON f.id=pub.fuente_id
                     WHERE pub.proceso_id=p.id AND f.tipo='BOE'
                   )
+              AND COALESCE(
+                    p.fecha_convocatoria,
+                    (SELECT MIN(pub.fecha_publicacion)
+                     FROM publicaciones pub
+                     JOIN fuentes fb ON fb.id=pub.fuente_id
+                     WHERE pub.proceso_id=p.id AND fb.tipo='BOP')
+                  ) IS NOT NULL
               {filtro_id}
-            ORDER BY p.fecha_convocatoria,p.id
+            ORDER BY fecha_bases,p.id
             """,
             params,
         )
@@ -73,7 +87,7 @@ def main() -> int:
 
     detalle = []
     for proceso in procesos:
-        fecha_bases = proceso["fecha_convocatoria"]
+        fecha_bases = proceso["fecha_bases"]
         encontrados = []
         errores = []
         for inicio, fin in _ventanas(fecha_bases, hasta, max(1, args.ventana_dias)):
