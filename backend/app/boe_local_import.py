@@ -42,6 +42,10 @@ def _nombres_entidad(entidad: str | None) -> set[str]:
 
 def _familia(denominacion: str | None) -> str | None:
     n = _sin(denominacion)
+    # El BOE puede conservar erratas materiales de la convocatoria. Se
+    # normaliza únicamente la omisión documentada de la "i" en
+    # "adminstrativo/a" para no convertir el matching en aproximado.
+    n = re.sub(r"\badminstr", "administr", n)
     if "auxiliar administr" in n:
         return "AUXILIAR_ADMINISTRATIVO"
     if ("tecnico" in n or "tecnica" in n or "tecnic" in n) and (
