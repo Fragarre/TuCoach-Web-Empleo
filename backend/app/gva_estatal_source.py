@@ -27,8 +27,6 @@ PATRONES_ADMIN = (
     r"\bcuerpo auxiliar\b",
     r"\badministrativ[oa]\b",
     r"\bauxiliar administrativ[oa]\b",
-    r"\btecnico tributario\b",
-    r"\bagentes? tributarios?\b",
 )
 PATRONES_ORGANISMO_GVA = (
     "generalitat valenciana",
