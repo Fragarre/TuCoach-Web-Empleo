@@ -6,7 +6,7 @@ from datetime import date
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from access import exigir_employment_access
+from access import EmploymentAccess, exigir_employment_access
 from auth import UsuarioAutenticado, usuario_actual
 from .bop_valencia_patch import diagnosticar_bop, importar_bop_valencia
 from .gva_enhanced import importar_gva_robusto, limpiar_gva_navegacion
@@ -28,7 +28,7 @@ from .empleo_admin_catalogo import router as empleo_admin_catalogo_router
 from . import periodic_endpoint
 from .historial import listar_publicaciones, listar_cambios
 from .organismos import listar_fuentes, listar_organismos, obtener_organismo
-from .procesos import listar_procesos, obtener_proceso
+from .procesos import es_proceso_privado, listar_procesos, obtener_proceso
 from .seguimiento import (
     suscripciones_usuario,
     suscripcion_usuario_proceso,
@@ -68,6 +68,19 @@ def _usuario_con_empleo(usuario: UsuarioAutenticado = Depends(usuario_actual)) -
     return usuario
 
 
+def _acceso_empleo(usuario: UsuarioAutenticado) -> EmploymentAccess:
+    return exigir_employment_access(usuario.id, usuario.access_token)
+
+
+def _exigir_acceso_proceso(usuario: UsuarioAutenticado, proceso_id: int) -> dict[str, Any]:
+    resultado = obtener_proceso(proceso_id)
+    if resultado is None:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    if es_proceso_privado(resultado) and not _acceso_empleo(usuario).private_employment:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    return resultado
+
+
 def _usuario_con_seguimiento(
     usuario: UsuarioAutenticado = Depends(usuario_actual),
 ) -> UsuarioAutenticado:
@@ -86,7 +99,7 @@ def health() -> dict[str, str]:
 @app.get("/me")
 def me(usuario: UsuarioAutenticado = Depends(usuario_actual)) -> dict[str, Any]:
     acceso = exigir_employment_access(usuario.id, usuario.access_token)
-    return {"id": str(usuario.id), "email": usuario.email, "employment_access": acceso.employment_access, "subscribed": acceso.subscribed}
+    return {"id": str(usuario.id), "email": usuario.email, "employment_access": acceso.employment_access, "subscribed": acceso.subscribed, "private_employment": acceso.private_employment}
 
 @app.get("/organismos")
 def organismos(solo_activos: bool = Query(True), _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
@@ -103,28 +116,27 @@ def fuentes(organismo_id: int | None = Query(None), solo_activas: bool = Query(T
     return listar_fuentes(organismo_id=organismo_id, solo_activas=solo_activas)
 
 @app.get("/procesos")
-def procesos(organismo_id: int | None = Query(default=None), estado: str | None = Query(default=None), limite: int = Query(default=100, ge=1, le=200), _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
-    return listar_procesos(organismo_id=organismo_id, estado=estado, limite=limite)
+def procesos(organismo_id: int | None = Query(default=None), estado: str | None = Query(default=None), limite: int = Query(default=100, ge=1, le=200), usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
+    acceso = _acceso_empleo(usuario)
+    return listar_procesos(organismo_id=organismo_id, estado=estado, limite=limite, incluir_privados=acceso.private_employment)
 
 @app.get("/procesos/{proceso_id}")
-def proceso(proceso_id: int, _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> dict[str, Any]:
-    resultado = obtener_proceso(proceso_id)
-    if resultado is None: raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    return resultado
+def proceso(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> dict[str, Any]:
+    return _exigir_acceso_proceso(usuario, proceso_id)
 
 @app.get("/procesos/{proceso_id}/publicaciones")
-def publicaciones_proceso(proceso_id: int, limite: int = Query(default=100, ge=1, le=200), _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
-    if obtener_proceso(proceso_id) is None: raise HTTPException(status_code=404, detail="Proceso no encontrado")
+def publicaciones_proceso(proceso_id: int, limite: int = Query(default=100, ge=1, le=200), usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
+    _exigir_acceso_proceso(usuario, proceso_id)
     return listar_publicaciones(proceso_id=proceso_id, limite=limite)
 
 @app.get("/procesos/{proceso_id}/cambios")
-def cambios_proceso(proceso_id: int, limite: int = Query(default=100, ge=1, le=200), _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
-    if obtener_proceso(proceso_id) is None: raise HTTPException(status_code=404, detail="Proceso no encontrado")
+def cambios_proceso(proceso_id: int, limite: int = Query(default=100, ge=1, le=200), usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
+    _exigir_acceso_proceso(usuario, proceso_id)
     return listar_cambios(proceso_id=proceso_id, limite=limite)
 
 @app.get("/procesos/{proceso_id}/temario")
-def temario_proceso(proceso_id: int, _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> dict[str, Any]:
-    if obtener_proceso(proceso_id) is None: raise HTTPException(status_code=404, detail="Proceso no encontrado")
+def temario_proceso(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> dict[str, Any]:
+    _exigir_acceso_proceso(usuario, proceso_id)
     return obtener_temario(proceso_id) or {"proceso_id": proceso_id, "temario": None}
 
 @app.get("/suscripciones")
@@ -133,15 +145,18 @@ def suscripciones(usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento
 
 @app.get("/suscripciones/{proceso_id}")
 def suscripcion_proceso(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> dict[str, Any]:
+    _exigir_acceso_proceso(usuario, proceso_id)
     return suscripcion_usuario_proceso(usuario.id, proceso_id) or {"activa": False, "proceso_id": proceso_id}
 
 @app.post("/suscripciones/{proceso_id}")
 def alta_suscripcion(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> dict[str, Any]:
+    _exigir_acceso_proceso(usuario, proceso_id)
     try: return suscribirse(usuario.id, proceso_id)
     except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @app.delete("/suscripciones/{proceso_id}")
 def baja_suscripcion(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_seguimiento)) -> dict[str, Any]:
+    _exigir_acceso_proceso(usuario, proceso_id)
     return {"proceso_id": proceso_id, "activa": False, "cancelada": cancelar_suscripcion(usuario.id, proceso_id)}
 
 @app.get("/seguimiento/cambios")
