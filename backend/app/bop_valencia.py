@@ -329,13 +329,15 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     if existente:
                         proceso_id = existente[0]
                         if es_base:
-                            nuevos = (titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, "EN_CURSO", anio, fecha_convocatoria)
-                            campos = ("denominacion", "grupo", "subgrupo", "tipo_proceso", "turno", "plazas", "estado", "anio_convocatoria", "fecha_convocatoria")
+                            # Releer las bases puede refrescar metadatos, pero no debe
+                            # reabrir un proceso que una publicación posterior cerró.
+                            nuevos = (titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, anio, fecha_convocatoria)
+                            campos = ("denominacion", "grupo", "subgrupo", "tipo_proceso", "turno", "plazas", "anio_convocatoria", "fecha_convocatoria")
                             for i, campo in enumerate(campos, 1):
                                 if existente[i] != nuevos[i - 1] and nuevos[i - 1] is not None:
                                     cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(existente[i]) if existente[i] is not None else None, str(nuevos[i - 1]), f"Actualización de la convocatoria: {campo}"))
                                     stats["cambios"] += 1
-                            cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),estado=%s,anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=TRUE,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], nuevos[8], ultima, fuente_id, Jsonb({**(existente[10] or {}), "url_convocatoria": anuncio["url"], "registro_convocatoria": registro}), proceso_id))
+                            cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=TRUE,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], ultima, fuente_id, Jsonb({**(existente[10] or {}), "url_convocatoria": anuncio["url"], "registro_convocatoria": registro}), proceso_id))
                         else:
                             estado_terminal = clasificar_evento_terminal(
                                 existente[4],
