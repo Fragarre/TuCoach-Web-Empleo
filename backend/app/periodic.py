@@ -60,8 +60,8 @@ def _ejecutar_fuente(funcion: Callable[[], Any]) -> tuple[Any, dict[str, Any]]:
         return {"error": error, "traceback": traza}, {"estado": "ERROR", "error": error, "traceback": traza}
 
 
-def _recuperar_boe_pendientes_activos(*, hasta: date, aplicar: bool) -> dict[str, Any]:
-    """Busca BOE para oportunidades BOP activas sin BOE simple o con seguimiento agregado."""
+def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) -> dict[str, Any]:
+    """Cruza pendientes BOP activos únicamente con la ventana BOE ordinaria del cron."""
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
             """
@@ -94,7 +94,7 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, aplicar: bool) -> dict[str
         pendientes = list(cursor.fetchall())
 
     extraccion_boe = (
-        extraer_convocatorias_boe_local(hasta=hasta, dias=180)
+        extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
         if pendientes
         else None
     )
@@ -213,6 +213,7 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         lambda: importar_bop_castellon(
             desde=desde,
             hasta=fecha_hoy,
+            dias=dias_solape,
             aplicar=aplicar,
         ),
     )
