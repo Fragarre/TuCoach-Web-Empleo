@@ -808,3 +808,36 @@ def recuperar_boe_para_proceso_bop(
             "fecha_boe": convocatoria.get("fecha_boe"),
             "publicacion_creada": creada,
         }
+
+
+def diagnosticar_eventos_boe_local(*, hasta: date, dias: int = 30) -> dict[str, Any]:
+    """SOLO LECTURA: diagnostica asociaciones de rectificaciones/anulaciones BOE."""
+    extraccion = extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
+    eventos = []
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        for convocatoria in extraccion["detalle"]:
+            tipo = convocatoria.get("tipo_documento") or "CONVOCATORIA"
+            if tipo not in ("RECTIFICACION", "ANULACION"):
+                continue
+            candidatos = _buscar_proceso_evento_documental(
+                cursor,
+                organismo_nombre=convocatoria.get("entidad"),
+                provincia=convocatoria.get("provincia"),
+                resolucion_anterior=convocatoria.get("resolucion_anterior"),
+            )
+            eventos.append({
+                "boe_id": convocatoria.get("boe_id"),
+                "fecha_boe": convocatoria.get("fecha_boe"),
+                "tipo_documento": tipo,
+                "entidad": convocatoria.get("entidad"),
+                "resolucion_anterior": convocatoria.get("resolucion_anterior"),
+                "candidatos": len(candidatos),
+                "candidatos_detalle": candidatos,
+            })
+    return {
+        "modo": "SOLO_LECTURA",
+        "desde": extraccion["desde"],
+        "hasta": extraccion["hasta"],
+        "eventos": eventos,
+        "errores": extraccion["errores"],
+    }
