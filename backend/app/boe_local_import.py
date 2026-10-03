@@ -247,6 +247,7 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
         "insertados": 0,
         "organismos_creados": 0,
         "publicaciones_creadas": 0,
+        "eventos_documentales_revision": 0,
         "detalle": [],
     }
 
@@ -269,6 +270,23 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
 
             codigo = convocatoria["codigo_externo"]
             estable = f"BOELOCAL:{codigo}"
+
+            # Rectificaciones y anulaciones no son convocatorias nuevas. Se
+            # aíslan del flujo ordinario hasta asociarlas inequívocamente con
+            # el proceso afectado; nunca deben generar un alta por aproximación.
+            tipo_documento = convocatoria.get("tipo_documento") or "CONVOCATORIA"
+            if tipo_documento in ("RECTIFICACION", "ANULACION"):
+                resultado["eventos_documentales_revision"] += 1
+                resultado["detalle"].append({
+                    "codigo_externo": codigo,
+                    "identificador_estable": estable,
+                    "boe_id": convocatoria.get("boe_id"),
+                    "fecha_boe": convocatoria.get("fecha_boe"),
+                    "entidad": convocatoria.get("entidad"),
+                    "tipo_documento": tipo_documento,
+                    "estado_importacion": "EVENTO_DOCUMENTAL_REVISION",
+                })
+                continue
 
             if not aplicar and convocatoria.get("boe_id") in (boe_ids_absorbidos or set()):
                 resultado["absorbidas_bop_revision"] += 1
