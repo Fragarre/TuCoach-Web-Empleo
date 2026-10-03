@@ -67,6 +67,7 @@ def main() -> int:
                         'BOP_ALICANTE','DIPUTACION_ALICANTE_OTRAS'
                     )
                     OR p.identificador_estable LIKE 'DVAL:%'
+                    OR p.identificador_estable LIKE 'AVAL:%'
                   )
               AND NOT EXISTS (
                     SELECT 1 FROM publicaciones pub
