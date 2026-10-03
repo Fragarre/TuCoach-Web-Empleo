@@ -12,7 +12,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.boe_local_import import recuperar_boe_para_proceso_bop
+from app.boe_local_import import recuperar_boe_para_proceso_bop, diagnosticar_eventos_boe_local
 from app.database import get_connection
 
 
@@ -20,12 +20,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Previsualiza, sin escribir, el matching BOE de un proceso BOP."
     )
-    parser.add_argument("proceso_id", type=int, help="ID interno del proceso BOP")
+    parser.add_argument("proceso_id", type=int, nargs="?", help="ID interno del proceso BOP")
+    parser.add_argument("--eventos", action="store_true", help="Diagnostica eventos BOE en solo lectura")
     parser.add_argument(
         "--hasta",
         help="Fecha final YYYY-MM-DD; por defecto usa la fecha actual",
     )
     args = parser.parse_args()
+
+    if args.eventos:
+        from datetime import date
+        hasta = date.fromisoformat(args.hasta) if args.hasta else date.today()
+        print(json.dumps(diagnosticar_eventos_boe_local(hasta=hasta, dias=30), ensure_ascii=False, indent=2, default=str))
+        return 0
+
+    if args.proceso_id is None:
+        parser.error("proceso_id es obligatorio salvo con --eventos")
 
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
