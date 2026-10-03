@@ -17,6 +17,7 @@ assert _SPEC and _SPEC.loader
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 _cambios_base_existente = _MODULE._cambios_base_existente
+_fecha_bases = _MODULE._fecha_bases
 
 
 class RefrescoBasesDiputacionValenciaTest(unittest.TestCase):
@@ -83,3 +84,15 @@ class RefrescoBasesDiputacionValenciaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FechaBasesDiputacionValenciaTest(unittest.TestCase):
+    def test_convocatoria_base_usa_fecha_publicacion_bop(self) -> None:
+        publicada = date(2026, 4, 17)
+        contenido = "Bases de la convocatoria 03/26 sin fecha repetida en el texto."
+        self.assertEqual(_fecha_bases(publicada, contenido, True), publicada)
+
+    def test_seguimiento_no_inventa_fecha_de_bases(self) -> None:
+        publicada = date(2026, 5, 20)
+        contenido = "Designación del tribunal de la convocatoria 03/26."
+        self.assertIsNone(_fecha_bases(publicada, contenido, False))
