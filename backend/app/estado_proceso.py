@@ -43,15 +43,6 @@ _TERMINALES_PROVISION = (
     "nomenament mitjancant concurs",
 )
 
-_TERMINALES_BOLSA = (
-    "constitucion de bolsa",
-    "constitucion de la bolsa",
-    "constitucio de borsa",
-    "constitucio de la borsa",
-    "aprobacion definitiva de la bolsa",
-    "aprovacio definitiva de la borsa",
-)
-
 _NUMEROS_PLAZO = {
     "cinco": 5,
     "diez": 10,
@@ -86,8 +77,6 @@ def clasificar_evento_terminal(tipo_proceso: str | None, titulo: str | None) -> 
     if any(x in n for x in ("anulacion", "anullacio", "anul·lacio")):
         return "ANULADO"
     if any(_sin(x) in n for x in _TERMINALES_COMUNES + _TERMINALES_PROVISION):
-        return "FINALIZADO"
-    if es_bolsa(tipo_proceso) and any(_sin(x) in n for x in _TERMINALES_BOLSA):
         return "FINALIZADO"
     return None
 
