@@ -15,6 +15,7 @@ from .database import get_connection
 from .bop_valencia import _grupo_subgrupo, _obtener_texto
 from .organismos import resolver_fuente, resolver_organismo
 from .boe_local_import import recuperar_boe_para_proceso_bop
+from .estado_proceso import clasificar_evento_terminal
 
 
 
@@ -625,6 +626,15 @@ def importar_bop_castellon(
                     })
                     continue
                 proceso_id = proceso["id"]
+                estado_terminal = clasificar_evento_terminal(
+                    proceso.get("tipo_proceso"),
+                    hallazgo.get("titulo") or "",
+                )
+                if estado_terminal:
+                    cursor.execute(
+                        "UPDATE procesos SET estado=%s,updated_at=NOW() WHERE id=%s",
+                        (estado_terminal, proceso_id),
+                    )
                 resultado["seguimientos_vinculados"] += 1
 
             else:
