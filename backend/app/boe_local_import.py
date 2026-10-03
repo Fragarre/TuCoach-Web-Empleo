@@ -306,7 +306,27 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
             # el proceso afectado; nunca deben generar un alta por aproximación.
             tipo_documento = convocatoria.get("tipo_documento") or "CONVOCATORIA"
             if tipo_documento in ("RECTIFICACION", "ANULACION"):
-                resultado["eventos_documentales_revision"] += 1
+                candidatos_evento = _buscar_proceso_evento_documental(
+                    cursor,
+                    organismo_nombre=convocatoria.get("entidad"),
+                    provincia=provincia,
+                    resolucion_anterior=convocatoria.get("resolucion_anterior"),
+                )
+                if len(candidatos_evento) != 1:
+                    resultado["eventos_documentales_revision"] += 1
+                    resultado["detalle"].append({
+                        "codigo_externo": codigo,
+                        "identificador_estable": estable,
+                        "boe_id": convocatoria.get("boe_id"),
+                        "fecha_boe": convocatoria.get("fecha_boe"),
+                        "entidad": convocatoria.get("entidad"),
+                        "tipo_documento": tipo_documento,
+                        "candidatos": len(candidatos_evento),
+                        "estado_importacion": "EVENTO_DOCUMENTAL_REVISION",
+                    })
+                    continue
+
+                candidato_evento = candidatos_evento[0]
                 resultado["detalle"].append({
                     "codigo_externo": codigo,
                     "identificador_estable": estable,
@@ -314,8 +334,10 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                     "fecha_boe": convocatoria.get("fecha_boe"),
                     "entidad": convocatoria.get("entidad"),
                     "tipo_documento": tipo_documento,
-                    "estado_importacion": "EVENTO_DOCUMENTAL_REVISION",
+                    "proceso_id": candidato_evento["id"],
+                    "estado_importacion": "EVENTO_DOCUMENTAL_IDENTIFICADO",
                 })
+                resultado["eventos_documentales_revision"] += 1
                 continue
 
             if not aplicar and convocatoria.get("boe_id") in (boe_ids_absorbidos or set()):
