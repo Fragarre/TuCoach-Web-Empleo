@@ -223,6 +223,14 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
         "documentos_pdf": documentos,
     }
 
+def _estado_proceso_adc(etapa_actual: str | None) -> str:
+    """Deriva actividad del ADC solo de evidencias oficiales inequívocas."""
+    etapa = _sin_acentos(etapa_actual or "")
+    if "anulacion" in etapa or "anullacio" in etapa:
+        return "ANULADO"
+    return "EN_CURSO"
+
+
 def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, estado_plazo: str | None) -> dict[str, Any]:
     """Determina si el ADC admite actuación del usuario en la fecha de consulta."""
     hoy = date.today()
@@ -283,6 +291,7 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
         "accionable": accion["accionable"],
         "motivo_accionabilidad": accion["motivo_accionabilidad"],
         "etapa_actual_gva": etapas["etapa_actual"],
+        "estado_proceso": _estado_proceso_adc(etapas["etapa_actual"]),
         "estado_plazo": etapas["estado_plazo"],
         "fechas_publicacion": etapas["fechas_publicacion"],
         "documentos_pdf": etapas["documentos_pdf"],
@@ -700,7 +709,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                         es_oportunidad,origen_dato,revision_estado,ambito_administrativo,
                         created_at,updated_at
                     ) VALUES (
-                        %s,%s,%s,%s,%s,%s,'Anuncio difícil cobertura (ADC)',%s,'EN_CURSO',
+                        %s,%s,%s,%s,%s,%s,'Anuncio difícil cobertura (ADC)',%s,%s,
                         %s,%s,%s,%s,TRUE,'AUTOMATICO','PUBLICADA','SI',NOW(),NOW()
                     )
                     ON CONFLICT (identificador_estable) DO NOTHING
@@ -708,7 +717,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                     (
                         organismo_id,str(adc["id_emp"]),adc["identificador_estable"],
                         adc["denominacion"],adc["cuerpo_escala"],adc["grupo"],adc["plazas"],
-                        adc["fecha_apertura"],adc["fecha_cierre"],fuente_id,Jsonb(datos),
+                        adc["estado_proceso"],adc["fecha_apertura"],adc["fecha_cierre"],fuente_id,Jsonb(datos),
                     ),
                 )
                 insertados += cursor.rowcount
@@ -725,7 +734,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                         fuente_principal_id=%s,
                         tipo_proceso='Anuncio difícil cobertura (ADC)',
                         plazas=%s,
-                        estado='EN_CURSO',
+                        estado=%s,
                         es_oportunidad=TRUE,
                         ambito_administrativo='SI',
                         fecha_apertura=COALESCE(%s,fecha_apertura),
@@ -737,7 +746,7 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                     (
                         adc["denominacion"],adc["cuerpo_escala"],adc["grupo"],
                         adc["identificador_estable"],str(adc["id_emp"]),organismo_id,fuente_id,
-                        adc["plazas"],adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
+                        adc["plazas"],adc["estado_proceso"],adc["fecha_apertura"],adc["fecha_cierre"],Jsonb(datos),
                         accion["proceso_id"],accion["identificador_existente"],
                     ),
                 )
