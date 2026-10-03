@@ -337,8 +337,11 @@ def usuarios_con_novedades_nuevas(
                     JOIN suscripciones s ON s.proceso_id = c.proceso_id
                     WHERE c.id = ANY(%s)
                       AND s.activa = TRUE
+                      AND c.significativo = TRUE
+                      AND c.valor_anterior IS NOT NULL
+                      AND LOWER(COALESCE(c.campo, '')) = ANY(%s)
                     """,
-                    (cambios,),
+                    (cambios, list(CAMPOS_CAMBIO_RELEVANTES)),
                 )
                 admitir_filas(cursor.fetchall())
 
