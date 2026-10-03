@@ -76,6 +76,14 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos
         r"comerc",
         r"desarrollo local",
         r"desenvolupament local",
+        r"gestion tributaria",
+        r"gestio tributaria",
+        r"recaudacion",
+        r"recaptacio",
+        r"agentes? tributarios?",
+        r"agents? tributaris?",
+        r"tecnico(?:/a)? tributario",
+        r"tecnic(?:/a)? tributari",
     )
     if any(re.search(p, texto) for p in patrones_no):
         return "NO"
@@ -98,16 +106,6 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos
         r"\bauxiliar(?:s)? administratiu(?:s|/va)?\b",
         r"\badministrativo(?:s|/a)?\b",
         r"\badministratiu(?:s|/va|/ves)?\b",
-        r"\bagentes? tributarios?\b",
-        r"\bagents? tributaris?\b",
-        r"\btecnico(?:/a)? tributario\b",
-        r"\btecnic(?:/a)? tributari\b",
-        r"\bgestion tributaria\b",
-        r"\bgestio tributaria\b",
-        r"\brecaudacion\b",
-        r"\brecaptacio\b",
-        r"\boficialia? de recaudacion\b",
-        r"\boficialia? de recaptacio\b",
     )
     if any(re.search(p, texto) for p in patrones_si):
         return "SI"
