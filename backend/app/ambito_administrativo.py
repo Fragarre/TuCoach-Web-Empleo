@@ -82,8 +82,6 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any]) -> str:
         r"\bc2-01\b",
         r"\ba1-01\b",
         r"\ba2-01\b",
-        r"\bc1-07\b",
-        r"\ba2-05\b",
         r"\bcuerpo administrativo\b",
         r"\bcuerpo auxiliar\b",
         r"\bcuerpo superior de administracion\b",
