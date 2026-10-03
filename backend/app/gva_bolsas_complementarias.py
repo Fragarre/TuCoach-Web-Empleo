@@ -213,7 +213,8 @@ def _bolsa_directa_cambia(existente: dict[str, Any], proceso: dict[str, Any]) ->
         proceso.get("ultima_publicacion_at") is not None and existente.get("ultima_publicacion_at") != proceso.get("ultima_publicacion_at"),
         datos_previos.get("fase_gva") != datos_nuevos.get("fase_gva"),
         datos_previos.get("etapa_actual_gva") != datos_nuevos.get("etapa_actual_gva"),
-        datos_previos.get("contenido_hash") != datos_nuevos.get("contenido_hash"),
+        (datos_previos.get("contenido_hash") or datos_previos.get("huella_novedad_bolsa"))
+            != (datos_nuevos.get("contenido_hash") or (proceso.get("publicacion") or {}).get("contenido_hash")),
     ))
 
 
@@ -534,6 +535,10 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
 
         for proceso in actualizables:
             datos = dict(proceso.get("datos_json") or {})
+            publicacion_origen = proceso.get("publicacion") or {}
+            huella_novedad = publicacion_origen.get("contenido_hash")
+            if huella_novedad:
+                datos["huella_novedad_bolsa"] = huella_novedad
             id_emp = int(datos["id_emp"])
             existente = existentes[id_emp]
             cursor.execute(
@@ -570,7 +575,7 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
                 proceso_id = int(fila["id"])
                 actualizados.append({"id_emp": id_emp, "proceso_id": proceso_id})
                 etapa = datos.get("etapa_actual_gva") or datos.get("fase_gva") or "Actualización de bolsa"
-                referencia = f"GVA_BOLSA_ETAPA:{id_emp}:{datos.get('contenido_hash') or etapa}"
+                referencia = f"GVA_BOLSA_ETAPA:{id_emp}:{huella_novedad or etapa}"
                 cursor.execute(
                     """
                     INSERT INTO publicaciones (
