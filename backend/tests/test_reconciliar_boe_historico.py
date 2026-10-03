@@ -18,6 +18,11 @@ class VentanasHistoricasTest(unittest.TestCase):
         self.assertEqual(ventanas[1], (date(2026, 1, 31), date(2026, 3, 1)))
         self.assertEqual(ventanas[2], (date(2026, 3, 2), date(2026, 3, 5)))
 
+    def test_fallback_exige_evidencia_de_bases(self):
+        texto = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'", texto)
+        self.assertIn("COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'", texto)
+
 
 if __name__ == "__main__":
     unittest.main()
