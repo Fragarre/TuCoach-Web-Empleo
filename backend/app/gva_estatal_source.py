@@ -20,7 +20,7 @@ UA = "NetReto-Empleo/1.0 (https://netexamenes.com)"
 TAM_PAGINA = 10
 
 VIAS_INCLUIDAS = {"INGRESO_LIBRE", "INTERINIDAD", "CONTRATACION_FIJA"}
-CODIGOS_ADMIN = ("A1-01", "A2-01", "A2-05", "C1-01", "C1-07", "C2-01")
+CODIGOS_ADMIN = ("A1-01", "A2-01", "C1-01", "C2-01")
 PATRONES_ADMIN = (
     r"\bsuperior de administracion\b",
     r"\bcuerpo administrativo\b",
@@ -163,8 +163,16 @@ def _extraer_via(texto: str) -> str | None:
 def _es_admin(titulo: str, texto: str) -> tuple[bool, list[str]]:
     nt = _sin(titulo)
     nd = _sin(texto)
-    codigos = sorted({c for c in CODIGOS_ADMIN if c.lower() in nd})
-    return bool(codigos or any(re.search(p, nt) for p in PATRONES_ADMIN)), codigos
+    codigos_detectados = sorted({
+        codigo.upper()
+        for codigo in re.findall(r"\b[a-c]\d-\d{2}\b", nd, re.I)
+    })
+    codigos = [codigo for codigo in codigos_detectados if codigo in CODIGOS_ADMIN]
+    # En GVA un código explícito prevalece sobre una denominación genérica:
+    # especialidades distintas de A1-01/A2-01/C1-01/C2-01 quedan fuera.
+    if codigos_detectados:
+        return bool(codigos), codigos
+    return bool(any(re.search(p, nt) for p in PATRONES_ADMIN)), codigos
 
 
 def _clasificar_organismo(texto: str | None) -> str:
