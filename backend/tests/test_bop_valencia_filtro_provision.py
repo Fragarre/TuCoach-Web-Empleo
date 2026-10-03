@@ -1,12 +1,12 @@
 from pathlib import Path
-import importlib.util
+import sys
 import unittest
 
-APP = Path(__file__).resolve().parents[1] / "app" / "bop_valencia.py"
-_SPEC = importlib.util.spec_from_file_location("bop_valencia_filtro_provision", APP)
-assert _SPEC and _SPEC.loader
-_MODULE = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(_MODULE)
+BACKEND = Path(__file__).resolve().parents[1]
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+
+from app import bop_valencia as _MODULE
 
 
 class BopValenciaFiltroProvisionTest(unittest.TestCase):
