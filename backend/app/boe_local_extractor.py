@@ -114,8 +114,11 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
         return None
     plazas = _numero_plazas(m.group(1))
     denominacion = m.group(2).strip()
+
+    # Normaliza una errata documentada en publicaciones BOE.
+    fragmento_clasificacion = re.sub(r"\badminstr", "administr", fragmento, flags=re.I)
     ambito = clasificar_ambito_administrativo(
-        {"denominacion": fragmento, "cuerpo_escala": None, "grupo": None}
+        {"denominacion": fragmento_clasificacion, "cuerpo_escala": None, "grupo": None}
     )
     sistema = None
     sm = re.search(r"por el sistema de\s+([^,.;]+)", fragmento, flags=re.I)
@@ -137,13 +140,65 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
     }
 
 
-def _extraer_plazo_literal(texto: str) -> str | None:
+def _tipo_documento_boe(titulo: str, texto: str) -> str:
+    """Clasifica eventos BOE que pueden alterar una convocatoria ya conocida."""
+    contexto = f"{titulo} {texto}".lower()
+    if re.search(r"\b(deja|dejar)\s+sin\s+efecto\b|\banula(?:r|da|do|ción)?\b", contexto, flags=re.I):
+        return "ANULACION"
+    if re.search(r"\bcorrecci[oó]n\s+de\s+errores\b|\brectificaci[oó]n\b", contexto, flags=re.I):
+        return "RECTIFICACION"
+    return "CONVOCATORIA"
+
+
+def _extraer_fecha_resolucion_documento(titulo: str, texto: str) -> str | None:
+    """Extrae la fecha de la resolución que origina el anuncio BOE, si consta expresamente."""
+    contexto = f"{titulo} {texto}"
     m = re.search(
-        r"(El plazo de presentaci[oó]n de solicitudes[^.]{0,350}\.)",
-        texto,
+        r"Resoluci[oó]n\s+de\s+(\d{1,2})\s+de\s+"
+        r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})",
+        contexto,
         flags=re.I,
     )
-    return m.group(1).strip() if m else None
+    if not m:
+        return None
+    meses = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+    }
+    return f"{int(m.group(3)):04d}-{meses[m.group(2).lower()]:02d}-{int(m.group(1)):02d}"
+
+
+def _extraer_resolucion_anterior(titulo: str, texto: str) -> dict[str, str] | None:
+    """Extrae la fecha de la resolución anterior citada por una anulación/rectificación."""
+    contexto = f"{titulo} {texto}"
+    m = re.search(
+        r"(?:deja\s+sin\s+efecto|correcci[oó]n\s+de\s+errores\s+de)\s+la\s+de\s+"
+        r"(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+(\d{4})",
+        contexto,
+        flags=re.I,
+    )
+    if not m:
+        return None
+    meses = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+    }
+    return {"fecha_resolucion": f"{int(m.group(3)):04d}-{meses[m.group(2).lower()]:02d}-{int(m.group(1)):02d}"}
+
+
+def _extraer_plazo_literal(texto: str) -> str | None:
+    """Extrae fórmulas habituales del BOE sin interpretar todavía el cómputo."""
+    patrones = (
+        r"((?:El )?plazo de presentaci[oó]n de solicitudes[^.]{0,350}\.)",
+        r"((?:El )?plazo para (?:la )?presentaci[oó]n de solicitudes[^.]{0,350}\.)",
+        r"((?:El )?plazo para presentar solicitudes[^.]{0,350}\.)",
+        r"(Las solicitudes se presentar[aá]n[^.]{0,350}\.)",
+    )
+    for patron in patrones:
+        m = re.search(patron, texto, flags=re.I)
+        if m:
+            return m.group(1).strip()
+    return None
 
 
 def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30) -> dict[str, Any]:
@@ -191,19 +246,47 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                     errores.append({"fecha": fecha.isoformat(), "error": f"{ident}: {type(exc).__name__}: {str(exc)[:160]}"})
                     continue
 
+                tipo_documento = _tipo_documento_boe(titulo, texto)
+                bases_bop = _extraer_bases_bop(texto)
+                entidad = _extraer_entidad(titulo)
+                provincia = _extraer_provincia(titulo)
+                plazo_literal = _extraer_plazo_literal(texto)
+                fecha_resolucion = _extraer_fecha_resolucion_documento(titulo, texto)
+                resolucion_anterior = _extraer_resolucion_anterior(titulo, texto)
+
                 plazas = []
                 for fragmento in _fragmentos_plazas(texto):
                     plaza = _extraer_plaza(fragmento)
                     if plaza and plaza["ambito_administrativo"] == "SI":
                         plazas.append(plaza)
+
                 if not plazas:
+                    if tipo_documento in ("RECTIFICACION", "ANULACION"):
+                        convocatorias.append({
+                            "codigo_externo": f"{ident}#evento",
+                            "boe_id": ident,
+                            "fecha_boe": fecha.isoformat(),
+                            "entidad": entidad,
+                            "provincia": provincia,
+                            "denominacion": None,
+                            "plazas": None,
+                            "sistema_selectivo": None,
+                            "turno": None,
+                            "ambito_administrativo": None,
+                            "bases_bop": bases_bop,
+                            "plazo_solicitudes_literal": plazo_literal,
+                            "tipo_documento": tipo_documento,
+                            "fecha_resolucion": fecha_resolucion,
+                            "resolucion_anterior": resolucion_anterior,
+                            "titulo_boe": titulo,
+                            "url_html": _texto_url(item.get("url_html")),
+                            "url_xml": _texto_url(item.get("url_xml")),
+                            "url_pdf": _texto_url(item.get("url_pdf")),
+                            "texto_plaza": texto,
+                        })
                     continue
 
                 documentos_con_ambito += 1
-                bases_bop = _extraer_bases_bop(texto)
-                entidad = _extraer_entidad(titulo)
-                provincia = _extraer_provincia(titulo)
-                plazo_literal = _extraer_plazo_literal(texto)
 
                 for indice, plaza in enumerate(plazas, start=1):
                     convocatorias.append({
@@ -223,6 +306,8 @@ def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30
                         "url_xml": _texto_url(item.get("url_xml")),
                         "url_pdf": _texto_url(item.get("url_pdf")),
                         "texto_plaza": plaza["texto_fuente"],
+                        "tipo_documento": tipo_documento,
+                        "titulo_boe": titulo,
                     })
             fecha += timedelta(days=1)
 
