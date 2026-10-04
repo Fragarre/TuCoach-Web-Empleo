@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 from datetime import datetime
 
-from access import PRIVATE_EMPLOYMENT_USER_IDS
+from access import es_categoria_empleo_privada, puede_acceder_categoria_privada
 from .database import get_connection
 from .email_sender import enviar_email
 
@@ -299,15 +299,8 @@ def usuarios_con_novedades_nuevas(
     def admitir_filas(filas: list[tuple[Any, ...]]) -> None:
         for user_id_raw, tipo_proceso, categoria_gva in filas:
             user_id = UUID(str(user_id_raw))
-            tipo = str(tipo_proceso or "").strip().lower()
-            categoria = str(categoria_gva or "").strip().upper()
-            privado = tipo in {
-                "bolsa de trabajo",
-                "difícil cobertura",
-                "anuncio difícil cobertura",
-                "anuncio difícil cobertura (adc)",
-            } or categoria in {"BOLSA", "ADC"}
-            if not privado or user_id in PRIVATE_EMPLOYMENT_USER_IDS:
+            privado = es_categoria_empleo_privada(tipo_proceso, categoria_gva)
+            if not privado or puede_acceder_categoria_privada(user_id):
                 usuarios.add(user_id)
 
     with get_connection() as connection:
@@ -324,6 +317,7 @@ def usuarios_con_novedades_nuevas(
                       AND s.activa = TRUE
                       AND p.es_oportunidad = TRUE
                       AND p.ambito_administrativo = 'SI'
+                      AND pub.detectada_at > COALESCE(s.updated_at, s.created_at)
                     """,
                     (publicaciones,),
                 )
@@ -344,6 +338,7 @@ def usuarios_con_novedades_nuevas(
                       AND c.significativo = TRUE
                       AND c.valor_anterior IS NOT NULL
                       AND LOWER(COALESCE(c.campo, '')) = ANY(%s)
+                      AND c.detectado_at > COALESCE(s.updated_at, s.created_at)
                     """,
                     (cambios, list(CAMPOS_CAMBIO_RELEVANTES)),
                 )
