@@ -181,7 +181,7 @@ def cambios_usuario(user_id: UUID, *, limite: int = 100) -> list[dict[str, Any]]
                       AND p.es_oportunidad = TRUE
                       AND p.ambito_administrativo = 'SI'
                       AND COALESCE(LOWER(pub.tipo), '') NOT IN ('navegacion', 'navegación')
-                      AND COALESCE(LOWER(pub.titulo), '') <> 'navegación'
+                      AND COALESCE(LOWER(pub.titulo), '') <> 'navegación'\n                      AND pub.detectada_at >= now() - interval '10 days'
 
                     UNION ALL
 
@@ -211,7 +211,7 @@ def cambios_usuario(user_id: UUID, *, limite: int = 100) -> list[dict[str, Any]]
                       AND c.valor_anterior IS NOT NULL
                       AND LOWER(COALESCE(c.campo, '')) = ANY(%s)
                       AND LOWER(COALESCE(c.valor_anterior, '')) <> 'navegación'
-                      AND LOWER(COALESCE(c.valor_anterior, '')) <> 'navegacion'
+                      AND LOWER(COALESCE(c.valor_anterior, '')) <> 'navegacion'\n                      AND c.detectado_at >= now() - interval '10 days'
                 ) novedades
                 ORDER BY detectado_at DESC NULLS LAST, id DESC
                 LIMIT %s
