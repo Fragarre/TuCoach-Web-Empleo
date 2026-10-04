@@ -53,7 +53,7 @@ def main() -> int:
                         JOIN fuentes fb ON fb.id=pub.fuente_id
                         WHERE pub.proceso_id=p.id AND fb.tipo='BOP'
                           AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP')
-                          AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'
+                          AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%%bases%%'
                                OR COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'))
                    ) AS fecha_bases,
                    p.denominacion
@@ -81,7 +81,7 @@ def main() -> int:
                      JOIN fuentes fb ON fb.id=pub.fuente_id
                      WHERE pub.proceso_id=p.id AND fb.tipo='BOP'
                        AND UPPER(COALESCE(pub.tipo,'')) IN ('BASES','CONVOCATORIA','BOP')
-                          AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'
+                          AND (LOWER(COALESCE(pub.titulo,'')) LIKE '%%bases%%'
                                OR COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'))
                   ) IS NOT NULL
               {filtro_id}
