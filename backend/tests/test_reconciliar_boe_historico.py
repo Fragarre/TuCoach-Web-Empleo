@@ -20,13 +20,13 @@ class VentanasHistoricasTest(unittest.TestCase):
 
     def test_fallback_exige_evidencia_de_bases(self):
         texto = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("LOWER(COALESCE(pub.titulo,'')) LIKE '%bases%'", texto)
+        self.assertIn("LOWER(COALESCE(pub.titulo,'')) LIKE '%%bases%%'", texto)
         self.assertIn("COALESCE(pub.datos_json->>'es_convocatoria_base','false')='true'", texto)
 
     def test_incluye_fuentes_aval_y_dval(self):
         texto = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("p.identificador_estable LIKE 'DVAL:%'", texto)
-        self.assertIn("p.identificador_estable LIKE 'AVAL:%'", texto)
+        self.assertIn("p.identificador_estable LIKE 'DVAL:%%'", texto)
+        self.assertIn("p.identificador_estable LIKE 'AVAL:%%'", texto)
 
 
 if __name__ == "__main__":
