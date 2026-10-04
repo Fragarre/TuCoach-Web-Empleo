@@ -322,6 +322,8 @@ def usuarios_con_novedades_nuevas(
                     JOIN suscripciones s ON s.proceso_id = pub.proceso_id
                     WHERE pub.id = ANY(%s)
                       AND s.activa = TRUE
+                      AND p.es_oportunidad = TRUE
+                      AND p.ambito_administrativo = 'SI'
                     """,
                     (publicaciones,),
                 )
@@ -337,6 +339,8 @@ def usuarios_con_novedades_nuevas(
                     JOIN suscripciones s ON s.proceso_id = c.proceso_id
                     WHERE c.id = ANY(%s)
                       AND s.activa = TRUE
+                      AND p.es_oportunidad = TRUE
+                      AND p.ambito_administrativo = 'SI'
                       AND c.significativo = TRUE
                       AND c.valor_anterior IS NOT NULL
                       AND LOWER(COALESCE(c.campo, '')) = ANY(%s)
