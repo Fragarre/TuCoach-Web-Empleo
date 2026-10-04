@@ -124,7 +124,7 @@ def main() -> int:
             errores.extend(extraccion.get("errores") or [])
             print(
                 f"  [RESULTADO] estado={resultado.get('estado')} "
-                f"documentos_boe={len(extraccion.get('convocatorias') or [])} "
+                f"convocatorias={int(extraccion.get('convocatorias') or 0)} "
                 f"errores={len(extraccion.get('errores') or [])}",
                 flush=True,
             )
