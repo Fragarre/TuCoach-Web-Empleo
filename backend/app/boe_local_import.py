@@ -232,19 +232,33 @@ def _insertar_publicacion_boe(cursor, *, fuente_id: int, proceso_id: int, convoc
         raise RuntimeError(f"URL BOE no disponible para {codigo}")
     cursor.execute(
         """
-        SELECT 1
+        SELECT id,proceso_id
         FROM publicaciones
         WHERE fuente_id=%s
           AND (
                 referencia=%s
                 OR datos_json->>'boe_id'=%s
               )
+        ORDER BY id
         LIMIT 1
         """,
         (fuente_id, codigo, convocatoria.get("boe_id")),
     )
-    if cursor.fetchone() is not None:
-        return False
+    existente = cursor.fetchone()
+    if existente is not None:
+        if existente["proceso_id"] == proceso_id:
+            return False
+
+        # Si el BOE se importó antes de reconocer su proceso BOP/DVAL,
+        # conserva una única publicación pero la reasigna al proceso
+        # administrativo ya identificado. El proceso BOE independiente se
+        # conserva por ahora; su depuración se realiza separadamente para no
+        # perder relaciones ajenas a la publicación.
+        cursor.execute(
+            "UPDATE publicaciones SET proceso_id=%s WHERE id=%s",
+            (proceso_id, existente["id"]),
+        )
+        return True
     cursor.execute(
         """
         INSERT INTO publicaciones (
