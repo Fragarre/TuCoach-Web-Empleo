@@ -101,6 +101,48 @@ def me(usuario: UsuarioAutenticado = Depends(usuario_actual)) -> dict[str, Any]:
     acceso = exigir_employment_access(usuario.id, usuario.access_token)
     return {"id": str(usuario.id), "email": usuario.email, "employment_access": acceso.employment_access, "subscribed": acceso.subscribed, "private_employment": acceso.private_employment}
 
+@app.get("/public/organismos")
+def organismos_publicos(solo_activos: bool = Query(True)) -> list[dict[str, Any]]:
+    """Catálogo público de organismos para las oposiciones visibles."""
+    return listar_organismos(solo_activos=solo_activos)
+
+
+@app.get("/public/procesos")
+def procesos_publicos(
+    organismo_id: int | None = Query(default=None),
+    estado: str | None = Query(default=None),
+    limite: int = Query(default=100, ge=1, le=200),
+) -> list[dict[str, Any]]:
+    """Catálogo público: excluye siempre Bolsas y ADC."""
+    return listar_procesos(
+        organismo_id=organismo_id,
+        estado=estado,
+        limite=limite,
+        incluir_privados=False,
+    )
+
+
+@app.get("/public/procesos/{proceso_id}")
+def proceso_publico(proceso_id: int) -> dict[str, Any]:
+    """Detalle público de una oposición ordinaria."""
+    resultado = obtener_proceso(proceso_id)
+    if resultado is None or es_proceso_privado(resultado):
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    return resultado
+
+
+@app.get("/public/procesos/{proceso_id}/publicaciones")
+def publicaciones_proceso_publicas(
+    proceso_id: int,
+    limite: int = Query(default=100, ge=1, le=200),
+) -> list[dict[str, Any]]:
+    """Publicaciones oficiales de una oposición pública."""
+    resultado = obtener_proceso(proceso_id)
+    if resultado is None or es_proceso_privado(resultado):
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    return listar_publicaciones(proceso_id=proceso_id, limite=limite)
+
+
 @app.get("/organismos")
 def organismos(solo_activos: bool = Query(True), _: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
     return listar_organismos(solo_activos=solo_activos)
