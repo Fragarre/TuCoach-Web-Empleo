@@ -93,11 +93,22 @@ def main() -> int:
         connection.rollback()
 
     detalle = []
-    for proceso in procesos:
+    total = len(procesos)
+    print(f"[INICIO] {total} procesos pendientes de reconciliación hasta {hasta.isoformat()}", flush=True)
+    for indice, proceso in enumerate(procesos, start=1):
         fecha_bases = proceso["fecha_bases"]
         encontrados = []
         errores = []
+        print(
+            f"[PROCESO {indice}/{total}] id={proceso['id']} "
+            f"bases={fecha_bases.isoformat()} identificador={proceso['identificador_estable']}",
+            flush=True,
+        )
         for inicio, fin in _ventanas(fecha_bases, hasta, max(1, args.ventana_dias)):
+            print(
+                f"  [VENTANA] {inicio.isoformat()} -> {fin.isoformat()}",
+                flush=True,
+            )
             extraccion = extraer_convocatorias_boe_local(
                 hasta=fin,
                 dias=(fin - inicio).days + 1,
@@ -111,10 +122,20 @@ def main() -> int:
                 extraccion_boe=extraccion,
             )
             errores.extend(extraccion.get("errores") or [])
+            print(
+                f"  [RESULTADO] estado={resultado.get('estado')} "
+                f"documentos_boe={len(extraccion.get('convocatorias') or [])} "
+                f"errores={len(extraccion.get('errores') or [])}",
+                flush=True,
+            )
             if resultado.get("estado") not in ("SIN_COINCIDENCIA", "FUERA_RANGO"):
                 encontrados.append({"ventana": [inicio.isoformat(), fin.isoformat()], **resultado})
                 if resultado.get("estado") in ("VINCULADA", "AGREGADO_ACTUALIZADO", "AGREGADO_SIN_CAMBIOS"):
                     break
+        print(
+            f"[FIN PROCESO {indice}/{total}] id={proceso['id']} coincidencias={len(encontrados)}",
+            flush=True,
+        )
         detalle.append({
             "proceso_id": proceso["id"],
             "identificador_estable": proceso["identificador_estable"],
