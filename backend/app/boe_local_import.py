@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 
 from .boe_local_extractor import extraer_convocatorias_boe_local
 from .database import get_connection
+from .ambito_administrativo import clasificar_ambito_administrativo
 from .organismos import resolver_fuente
 
 
@@ -42,6 +43,10 @@ def _nombres_entidad(entidad: str | None) -> set[str]:
 
 def _familia(denominacion: str | None) -> str | None:
     n = _sin(denominacion)
+    # El BOE puede conservar erratas materiales de la convocatoria. Se
+    # normaliza únicamente la omisión documentada de la "i" en
+    # "adminstrativo/a" para no convertir el matching en aproximado.
+    n = re.sub(r"\badminstr", "administr", n)
     if "auxiliar administr" in n:
         return "AUXILIAR_ADMINISTRATIVO"
     if ("tecnico" in n or "tecnica" in n or "tecnic" in n) and (
@@ -113,6 +118,45 @@ def _candidatos_bop(
         resultado.append(proceso)
     return resultado
 
+
+def _buscar_proceso_evento_documental(cursor, *, organismo_nombre: str | None, provincia: str | None, resolucion_anterior: dict[str, str] | None) -> list[dict[str, Any]]:
+    """Busca el proceso al que apunta una resolución anterior, sin heurística de categoría."""
+    if not organismo_nombre or not provincia or not resolucion_anterior:
+        return []
+    fecha = resolucion_anterior.get("fecha_resolucion")
+    if not fecha:
+        return []
+    nombres = _nombres_entidad(organismo_nombre)
+    if not nombres:
+        return []
+    cursor.execute(
+        """
+        SELECT DISTINCT p.id,p.identificador_estable,p.denominacion,p.estado,
+                        o.nombre AS organismo_nombre,o.provincia AS organismo_provincia
+        FROM procesos p
+        JOIN organismos o ON o.id=p.organismo_id
+        JOIN publicaciones pub ON pub.proceso_id=p.id
+        JOIN fuentes f ON f.id=pub.fuente_id
+        WHERE f.tipo='BOE'
+          AND pub.datos_json->>'fecha_resolucion'=%s
+        ORDER BY p.id
+        """,
+        (fecha,),
+    )
+    provincia_normalizada = _sin(provincia)
+    return [
+        proceso
+        for proceso in cursor.fetchall()
+        if _sin(proceso.get("organismo_nombre")) in nombres
+        and _sin(proceso.get("organismo_provincia")) == provincia_normalizada
+    ]
+
+
+def _estado_despues_evento_documental(tipo_documento: str, estado_actual: str | None) -> str | None:
+    """Determina el estado del proceso sin alterar estados por una rectificación."""
+    if tipo_documento == "ANULACION":
+        return "ANULADO"
+    return estado_actual
 
 def _es_turno_interno(turno: str | None) -> bool:
     return "promocion interna" in _sin(turno)
@@ -215,6 +259,9 @@ def _insertar_publicacion_boe(cursor, *, fuente_id: int, proceso_id: int, convoc
                 "boe_id": convocatoria.get("boe_id"),
                 "codigo_externo": codigo,
                 "bases_bop": convocatoria.get("bases_bop"),
+                "tipo_documento": convocatoria.get("tipo_documento") or "CONVOCATORIA",
+                "fecha_resolucion": convocatoria.get("fecha_resolucion"),
+                "resolucion_anterior": convocatoria.get("resolucion_anterior"),
             }),
         ),
     )
@@ -242,6 +289,7 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
         "insertados": 0,
         "organismos_creados": 0,
         "publicaciones_creadas": 0,
+        "eventos_documentales_revision": 0,
         "detalle": [],
     }
 
@@ -264,6 +312,84 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
 
             codigo = convocatoria["codigo_externo"]
             estable = f"BOELOCAL:{codigo}"
+
+            # Rectificaciones y anulaciones no son convocatorias nuevas. Se
+            # aíslan del flujo ordinario hasta asociarlas inequívocamente con
+            # el proceso afectado; nunca deben generar un alta por aproximación.
+            tipo_documento = convocatoria.get("tipo_documento") or "CONVOCATORIA"
+            if tipo_documento in ("RECTIFICACION", "ANULACION"):
+                candidatos_evento = _buscar_proceso_evento_documental(
+                    cursor,
+                    organismo_nombre=convocatoria.get("entidad"),
+                    provincia=provincia,
+                    resolucion_anterior=convocatoria.get("resolucion_anterior"),
+                )
+                if len(candidatos_evento) != 1:
+                    resultado["eventos_documentales_revision"] += 1
+                    resultado["detalle"].append({
+                        "codigo_externo": codigo,
+                        "identificador_estable": estable,
+                        "boe_id": convocatoria.get("boe_id"),
+                        "fecha_boe": convocatoria.get("fecha_boe"),
+                        "entidad": convocatoria.get("entidad"),
+                        "tipo_documento": tipo_documento,
+                        "candidatos": len(candidatos_evento),
+                        "estado_importacion": "EVENTO_DOCUMENTAL_REVISION",
+                    })
+                    continue
+
+                candidato_evento = candidatos_evento[0]
+                estado_evento = "EVENTO_DOCUMENTAL_IDENTIFICADO"
+                if aplicar:
+                    datos_evento = {
+                        "origen": "BOE_LOCAL",
+                        "boe_id": convocatoria.get("boe_id"),
+                        "codigo_externo": codigo,
+                        "tipo_documento": tipo_documento,
+                        "fecha_resolucion": convocatoria.get("fecha_resolucion"),
+                        "resolucion_anterior": convocatoria.get("resolucion_anterior"),
+                        "fecha_boe": convocatoria.get("fecha_boe"),
+                        "url_html": convocatoria.get("url_html"),
+                        "url_xml": convocatoria.get("url_xml"),
+                        "url_pdf": convocatoria.get("url_pdf"),
+                    }
+                    cursor.execute(
+                        """
+                        UPDATE procesos
+                        SET datos_json = COALESCE(datos_json,'{}'::jsonb) || jsonb_build_object(
+                                'boe_local_eventos',
+                                COALESCE(datos_json->'boe_local_eventos','[]'::jsonb) || %s::jsonb
+                            ),
+                            estado = %s,
+                            ultima_publicacion_at = GREATEST(
+                                COALESCE(ultima_publicacion_at, %s::date::timestamptz),
+                                %s::date::timestamptz
+                            ),
+                            updated_at=NOW()
+                        WHERE id=%s
+                        """,
+                        (Jsonb(datos_evento), _estado_despues_evento_documental(tipo_documento, candidato_evento.get("estado")), convocatoria.get("fecha_boe"), convocatoria.get("fecha_boe"), candidato_evento["id"]),
+                    )
+                    _insertar_publicacion_boe(
+                        cursor,
+                        fuente_id=fuente_boe_id,
+                        proceso_id=candidato_evento["id"],
+                        convocatoria=convocatoria,
+                        codigo=codigo,
+                    )
+                    estado_evento = "EVENTO_DOCUMENTAL_APLICADO"
+                resultado["detalle"].append({
+                    "codigo_externo": codigo,
+                    "identificador_estable": estable,
+                    "boe_id": convocatoria.get("boe_id"),
+                    "fecha_boe": convocatoria.get("fecha_boe"),
+                    "entidad": convocatoria.get("entidad"),
+                    "tipo_documento": tipo_documento,
+                    "proceso_id": candidato_evento["id"],
+                    "estado_importacion": estado_evento,
+                })
+                resultado["eventos_documentales_revision"] += 1
+                continue
 
             if not aplicar and convocatoria.get("boe_id") in (boe_ids_absorbidos or set()):
                 resultado["absorbidas_bop_revision"] += 1
@@ -394,6 +520,17 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
                 resultado["detalle"].append(item)
                 continue
 
+            ambito = clasificar_ambito_administrativo({
+                "denominacion": convocatoria.get("denominacion"),
+                "cuerpo_escala": convocatoria.get("texto_plaza"),
+                "grupo": "",
+            })
+            if ambito != "SI":
+                item["estado_importacion"] = "FUERA_AMBITO_ADMINISTRATIVO"
+                item["ambito_administrativo"] = ambito
+                resultado["detalle"].append(item)
+                continue
+
             resultado["nuevas"] += 1
             item["estado_importacion"] = "NUEVA"
 
@@ -450,6 +587,22 @@ def previsualizar_importacion_boe_local(*, hasta: date, dias: int = 30, aplicar:
 
     return resultado
 
+def _filtrar_extraccion_boe_desde(extraccion_boe: dict[str, Any], desde: date) -> dict[str, Any]:
+    """Recorta una extracción ya obtenida sin ampliar su ventana de consulta."""
+    desde_iso = desde.isoformat()
+    return {
+        **extraccion_boe,
+        "detalle": [
+            item for item in extraccion_boe["detalle"]
+            if item.get("fecha_boe") and item["fecha_boe"] >= desde_iso
+        ],
+        "errores": [
+            item for item in extraccion_boe["errores"]
+            if item.get("fecha") and item["fecha"] >= desde_iso
+        ],
+    }
+
+
 def recuperar_boe_para_proceso_bop(
     *,
     proceso_id: int,
@@ -469,17 +622,7 @@ def recuperar_boe_para_proceso_bop(
         extraccion = extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
     else:
         desde_proceso = hasta.fromordinal(hasta.toordinal() - dias + 1)
-        extraccion = {
-            **extraccion_boe,
-            "detalle": [
-                item for item in extraccion_boe["detalle"]
-                if item.get("fecha_boe") and item["fecha_boe"] >= desde_proceso.isoformat()
-            ],
-            "errores": [
-                item for item in extraccion_boe["errores"]
-                if item.get("fecha") and item["fecha"] >= desde_proceso.isoformat()
-            ],
-        }
+        extraccion = _filtrar_extraccion_boe_desde(extraccion_boe, desde_proceso)
 
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
@@ -671,3 +814,36 @@ def recuperar_boe_para_proceso_bop(
             "fecha_boe": convocatoria.get("fecha_boe"),
             "publicacion_creada": creada,
         }
+
+
+def diagnosticar_eventos_boe_local(*, hasta: date, dias: int = 30) -> dict[str, Any]:
+    """SOLO LECTURA: diagnostica asociaciones de rectificaciones/anulaciones BOE."""
+    extraccion = extraer_convocatorias_boe_local(hasta=hasta, dias=dias)
+    eventos = []
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        for convocatoria in extraccion["detalle"]:
+            tipo = convocatoria.get("tipo_documento") or "CONVOCATORIA"
+            if tipo not in ("RECTIFICACION", "ANULACION"):
+                continue
+            candidatos = _buscar_proceso_evento_documental(
+                cursor,
+                organismo_nombre=convocatoria.get("entidad"),
+                provincia=convocatoria.get("provincia"),
+                resolucion_anterior=convocatoria.get("resolucion_anterior"),
+            )
+            eventos.append({
+                "boe_id": convocatoria.get("boe_id"),
+                "fecha_boe": convocatoria.get("fecha_boe"),
+                "tipo_documento": tipo,
+                "entidad": convocatoria.get("entidad"),
+                "resolucion_anterior": convocatoria.get("resolucion_anterior"),
+                "candidatos": len(candidatos),
+                "candidatos_detalle": candidatos,
+            })
+    return {
+        "modo": "SOLO_LECTURA",
+        "desde": extraccion["desde"],
+        "hasta": extraccion["hasta"],
+        "eventos": eventos,
+        "errores": extraccion["errores"],
+    }
