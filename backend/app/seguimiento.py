@@ -169,7 +169,7 @@ def cambios_usuario(user_id: UUID, *, limite: int = 100) -> list[dict[str, Any]]
                         pub.tipo,
                         NULL::text AS campo,
                         pub.titulo AS resumen,
-                        pub.fecha_publicacion::timestamptz AS detectado_at,
+                        pub.detectada_at AS detectado_at,
                         TRUE AS significativo,
                         pub.url
                     FROM publicaciones pub
