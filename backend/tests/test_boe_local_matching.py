@@ -23,6 +23,7 @@ _filtrar_extraccion_boe_desde = _MODULE._filtrar_extraccion_boe_desde
 _nombres_entidad = _MODULE._nombres_entidad
 _buscar_proceso_evento_documental = _MODULE._buscar_proceso_evento_documental
 _estado_despues_evento_documental = _MODULE._estado_despues_evento_documental
+_insertar_publicacion_boe = _MODULE._insertar_publicacion_boe
 
 # El extractor se carga aparte para probar la clasificación documental BOE.
 _EXTRACTOR_PATH = APP_DIR / "boe_local_extractor.py"
@@ -265,3 +266,51 @@ class EstadoEventoHelperIntegrationTest(unittest.TestCase):
     def test_anulacion_y_rectificacion_se_distinguen(self) -> None:
         self.assertEqual(_estado_despues_evento_documental("ANULACION", "ABIERTO"), "ANULADO")
         self.assertEqual(_estado_despues_evento_documental("RECTIFICACION", "ABIERTO"), "ABIERTO")
+
+
+class _CursorPublicacionFake:
+    def __init__(self, existente):
+        self.existente = existente
+        self.executions = []
+
+    def execute(self, sql, params):
+        self.executions.append((sql, params))
+
+    def fetchone(self):
+        return self.existente
+
+
+class PublicacionBoeAbsorcionRegressionTest(unittest.TestCase):
+    def test_reasigna_publicacion_boe_existente_al_proceso_bop(self) -> None:
+        cursor = _CursorPublicacionFake({"id": 839, "proceso_id": 440})
+        creada_o_reasignada = _insertar_publicacion_boe(
+            cursor,
+            fuente_id=7,
+            proceso_id=373,
+            convocatoria={
+                "boe_id": "BOE-A-2026-20049",
+                "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-20049",
+            },
+            codigo="BOE-A-2026-20049#1",
+        )
+
+        self.assertTrue(creada_o_reasignada)
+        self.assertEqual(len(cursor.executions), 2)
+        self.assertIn("UPDATE publicaciones SET proceso_id=%s WHERE id=%s", cursor.executions[1][0])
+        self.assertEqual(cursor.executions[1][1], (373, 839))
+
+    def test_publicacion_ya_en_el_proceso_correcto_es_idempotente(self) -> None:
+        cursor = _CursorPublicacionFake({"id": 839, "proceso_id": 373})
+        creada_o_reasignada = _insertar_publicacion_boe(
+            cursor,
+            fuente_id=7,
+            proceso_id=373,
+            convocatoria={
+                "boe_id": "BOE-A-2026-20049",
+                "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-20049",
+            },
+            codigo="BOE-A-2026-20049#1",
+        )
+
+        self.assertFalse(creada_o_reasignada)
+        self.assertEqual(len(cursor.executions), 1)
