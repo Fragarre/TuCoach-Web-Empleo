@@ -42,7 +42,10 @@ def _iter_items_locales(data: dict[str, Any]):
                 if str((departamento or {}).get("codigo") or "").strip() != DEPARTAMENTO_LOCAL_CODIGO:
                     continue
                 nombre_departamento = str((departamento or {}).get("nombre") or "").strip()
-                for epigrafe in _lista((departamento or {}).get("epigrafe")):
+                contenido_departamento = (departamento or {}).get("texto")
+                if not isinstance(contenido_departamento, dict):
+                    contenido_departamento = departamento or {}
+                for epigrafe in _lista(contenido_departamento.get("epigrafe")):
                     nombre_epigrafe = str((epigrafe or {}).get("nombre") or "").strip()
                     for item in _lista((epigrafe or {}).get("item")):
                         if isinstance(item, dict):
