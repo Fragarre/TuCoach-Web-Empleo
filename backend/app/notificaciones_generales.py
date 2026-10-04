@@ -14,6 +14,7 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 
+from access import es_categoria_empleo_privada, puede_acceder_categoria_privada
 from .database import get_connection
 from .email_sender import enviar_email
 from .procesos import _condiciones_catalogo
@@ -64,9 +65,28 @@ def preparar_envios_eventos(evento_ids: Iterable[int]) -> int:
         return 0
 
     creados = 0
-    with get_connection() as connection, connection.cursor() as cursor:
+    with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        cursor.execute(
+            """
+            SELECT e.id AS evento_id, p.tipo_proceso, p.datos_json->>'categoria_gva' AS categoria_gva
+            FROM empleo_eventos_notificacion e
+            JOIN procesos p ON p.id = e.proceso_id
+            WHERE e.id = ANY(%s)
+            """,
+            (eventos,),
+        )
+        categorias = {int(row["evento_id"]): row for row in cursor.fetchall()}
         for evento_id in eventos:
+            proceso = categorias.get(evento_id)
+            if proceso is None:
+                continue
+            privada = es_categoria_empleo_privada(
+                proceso["tipo_proceso"],
+                proceso["categoria_gva"],
+            )
             for user_id, email in destinatarios:
+                if privada and not puede_acceder_categoria_privada(user_id):
+                    continue
                 cursor.execute(
                     """
                     INSERT INTO empleo_envios_notificacion
