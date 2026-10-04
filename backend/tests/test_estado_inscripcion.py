@@ -37,6 +37,24 @@ class EstadoInscripcionTest(unittest.TestCase):
         self.assertEqual(resultado["codigo"], "ABIERTO")
         self.assertEqual(resultado["fecha_cierre"], date(2026, 10, 2))
 
+    def test_boe_agregado_no_queda_pendiente(self) -> None:
+        resultado = estado_inscripcion(
+            {
+                "datos_json": {
+                    "origen": "BOP_VALENCIA_MUNICIPAL",
+                    "boe_local_agregados": [
+                        {
+                            "boe_id": "BOE-A-2026-12345",
+                            "codigo_externo": "BOE-2026-12345",
+                            "fecha_boe": "2026-09-20",
+                            "plazo_solicitudes_literal": "20 días hábiles",
+                        }
+                    ],
+                }
+            },
+            hoy=date(2026, 9, 27),
+        )
+        self.assertNotEqual(resultado["codigo"], "PENDIENTE_BOE")
     def test_bop_sin_boe_sigue_pendiente(self) -> None:
         self.assertEqual(
             estado_inscripcion({"datos_json": {"origen": "BOP_VALENCIA_MUNICIPAL"}}),
