@@ -246,8 +246,7 @@ def _guardar_estado(
     cursor.execute(
         """
         UPDATE procesos
-        SET datos_json = COALESCE(datos_json, '{}'::jsonb) || %s,
-            updated_at=NOW()
+        SET datos_json = COALESCE(datos_json, '{}'::jsonb) || %s
         WHERE id=%s
         """,
         (Jsonb({"seguimiento_gva": estado}), proceso_id),
