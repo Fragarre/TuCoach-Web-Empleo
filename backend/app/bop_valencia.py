@@ -166,6 +166,10 @@ def _incluido(titulo: str) -> bool:
     return any(_sin(x) in n for x in INCLUIDOS)
 
 
+def _es_oportunidad_administrativa(ambito: str, turno: str | None) -> bool:
+    return ambito == "SI" and turno != "PROMOCION_INTERNA"
+
+
 def _es_convocatoria_base(titulo: str, texto: str) -> bool:
     n = _sin(titulo + " " + texto)
     if any(x in n for x in (
@@ -367,9 +371,9 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                         }
                     )
                     turno = _turno(contenido)
-                    es_oportunidad = (
-                        ambito_administrativo == "SI"
-                        and turno != "PROMOCION_INTERNA"
+                    es_oportunidad = _es_oportunidad_administrativa(
+                        ambito_administrativo,
+                        turno,
                     )
                     estable = _identificador_estable(titulo, texto)
                     tipo_publicacion = _tipo_publicacion(titulo, texto)
