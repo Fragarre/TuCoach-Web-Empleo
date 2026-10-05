@@ -77,7 +77,7 @@ def revisar_activos(*, hasta: date, dias: int = 180, aplicar: bool = False) -> d
     fuentes.append(_ejecutar(
         "bop_alicante",
         lambda: importar_bop_alicante(
-            dias_solape=dias,
+            dias_solape=max(0, dias - 1),
             hasta=hasta,
             max_items=5000,
             aplicar=aplicar,
