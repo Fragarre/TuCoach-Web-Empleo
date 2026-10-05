@@ -36,6 +36,26 @@ _extraer_plaza = _EXTRACTOR._extraer_plaza
 _extraer_resolucion_anterior = _EXTRACTOR._extraer_resolucion_anterior
 
 
+class DiputacionValenciaBoeRegressionTest(unittest.TestCase):
+    def test_boe_19660_se_clasifica_como_tag_administrativo(self) -> None:
+        plaza = _extraer_plaza(
+            "Quince plazas de Técnico/a Administración General, pertenecientes a la "
+            "escala de Administración General, subescala Técnica y clase Superior, "
+            "por el sistema de oposición, en turno libre."
+        )
+        self.assertIsNotNone(plaza)
+        self.assertEqual(plaza["ambito_administrativo"], "SI")
+        self.assertEqual(plaza["plazas"], 15)
+        self.assertEqual(_familia(plaza["denominacion"]), "TAG")
+
+    def test_diputacion_valencia_bilingue_conserva_variante_castellana(self) -> None:
+        nombres = _nombres_entidad("Diputación Provincial de Valencia/València")
+        self.assertIn(
+            _MODULE._sin("Diputación Provincial de Valencia"),
+            nombres,
+        )
+
+
 class ExtractorBoeLocalRegressionTest(unittest.TestCase):
     def test_errata_boe_adminstrativo_no_se_descarta(self) -> None:
         plaza = _extraer_plaza("Dos plazas de Auxiliar Adminstrativo/a, por turno libre.")
