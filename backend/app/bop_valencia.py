@@ -147,8 +147,20 @@ def _tipo(s: str) -> str:
     return "Proceso selectivo"
 
 
+def _es_evento_terminal_titulo(titulo: str) -> bool:
+    """Conserva publicaciones terminales aunque el filtro general las excluya.
+
+    Nombramientos, desistimientos y anulaciones son necesarios para cerrar una
+    convocatoria ya conocida. La persistencia evita crear procesos huérfanos
+    cuando no existe una convocatoria previa con el mismo identificador.
+    """
+    return clasificar_evento_terminal(None, titulo) is not None
+
+
 def _incluido(titulo: str) -> bool:
     n = _sin(titulo)
+    if _es_evento_terminal_titulo(titulo):
+        return True
     if any(_sin(x) in n for x in EXCLUIDOS):
         return False
     return any(_sin(x) in n for x in INCLUIDOS)
@@ -354,7 +366,11 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             "grupo": None,
                         }
                     )
-                    es_oportunidad = ambito_administrativo == "SI"
+                    turno = _turno(contenido)
+                    es_oportunidad = (
+                        ambito_administrativo == "SI"
+                        and turno != "PROMOCION_INTERNA"
+                    )
                     estable = _identificador_estable(titulo, texto)
                     tipo_publicacion = _tipo_publicacion(titulo, texto)
                     es_base = tipo_publicacion == "CONVOCATORIA"
@@ -366,6 +382,10 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     fecha_convocatoria = _fecha_bases(fecha, contenido, es_base)
                     grupo, subgrupo = _grupo_subgrupo(contenido)
                     plazas = _plazas(contenido)
+                    estado_terminal_anuncio = clasificar_evento_terminal(
+                        _tipo(contenido),
+                        titulo,
+                    )
                     ultima = datetime.combine(fecha, datetime.min.time(), tzinfo=timezone.utc) if fecha else None
                     cursor.execute("SELECT id, denominacion, grupo, subgrupo, tipo_proceso, turno, plazas, estado, anio_convocatoria, fecha_convocatoria, datos_json FROM procesos WHERE identificador_estable=%s", (estable,))
                     existente = cursor.fetchone()
@@ -374,7 +394,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                         if es_base:
                             # Releer las bases puede refrescar metadatos, pero no debe
                             # reabrir un proceso que una publicación posterior cerró.
-                            nuevos = (titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, anio, fecha_convocatoria)
+                            nuevos = (titulo, grupo, subgrupo, _tipo(contenido), turno, plazas, anio, fecha_convocatoria)
                             for campo, valor_anterior, valor_nuevo in _cambios_base_existente(existente, nuevos):
                                 cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(valor_anterior) if valor_anterior is not None else None, str(valor_nuevo), f"Actualización de la convocatoria: {campo}"))
                                 stats["cambios"] += 1
@@ -392,7 +412,19 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             else:
                                 cursor.execute("UPDATE procesos SET ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,updated_at=NOW() WHERE id=%s", (ultima, fuente_id, proceso_id))
                     else:
-                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), _turno(contenido), plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido)})))
+                        # Un seguimiento terminal sin convocatoria previa no debe
+                        # convertirse por sí solo en una oportunidad EN_CURSO.
+                        # Si las bases aparecen antes en el histórico, compartirán
+                        # identificador y se habrá entrado por la rama existente.
+                        if estado_terminal_anuncio and not es_base:
+                            stats.setdefault("terminales_sin_convocatoria", []).append({
+                                "registro": registro,
+                                "titulo": titulo,
+                                "identificador_estable": estable,
+                                "estado_terminal": estado_terminal_anuncio,
+                            })
+                            continue
+                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), turno, plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido)})))
                         proceso_id = cursor.fetchone()[0]
                         stats["procesos"] += 1
                     contenido_hash = hashlib.sha256(texto.encode("utf-8")).hexdigest()
