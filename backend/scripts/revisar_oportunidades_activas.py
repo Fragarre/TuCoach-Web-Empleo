@@ -7,15 +7,20 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+import httpx
+
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.boe_local_import import previsualizar_importacion_boe_local
+from app.alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from app.bop_alicante import importar_bop_alicante
 from app.bop_castellon import importar_bop_castellon
 from app.bop_valencia_municipios import importar_municipales_bop
+from app.bop_valencia_patch import descubrir_anuncios as descubrir_bop_valencia_diputacion
+from app.bop_valencia_patch import importar_bop_valencia
 from app.gva_adc import persistir_adc_gva
 from app.gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
 from app.gva_estatal_service import importar_gva_estatal
@@ -32,6 +37,30 @@ def _ejecutar(nombre: str, funcion: Callable[[], Any]) -> dict[str, Any]:
         }
 
 
+def _revisar_bop_valencia_diputacion(*, dias: int, aplicar: bool) -> dict[str, Any]:
+    """Revisa la Diputación de Valencia sin escribir salvo autorización expresa.
+
+    El importador histórico legado no dispone de modo dry-run. En revisión se
+    limita a descubrir los anuncios administrativos del periodo; en --aplicar
+    ejecuta el importador histórico idempotente, que además procesa seguimientos.
+    """
+    if aplicar:
+        return importar_bop_valencia(historico=True, dias=dias)
+
+    headers = {
+        "User-Agent": "TuCoach-Empleo/1.0",
+        "Accept-Language": "es-ES,es;q=0.9",
+    }
+    with httpx.Client(timeout=30, headers=headers, follow_redirects=True) as client:
+        anuncios = descubrir_bop_valencia_diputacion(client, historico=True, dias=dias)
+    return {
+        "modo": "SOLO_REVISION",
+        "descubiertos": len(anuncios),
+        "detalle": anuncios,
+        "nota": "Descubrimiento histórico sin escrituras; clasificación/persistencia solo con --aplicar.",
+    }
+
+
 def revisar_activos(*, hasta: date, dias: int = 180, aplicar: bool = False) -> dict[str, Any]:
     """Revisión histórica extraordinaria e idempotente de oportunidades activas.
 
@@ -45,19 +74,13 @@ def revisar_activos(*, hasta: date, dias: int = 180, aplicar: bool = False) -> d
     desde = hasta - timedelta(days=dias - 1)
     fuentes: list[dict[str, Any]] = []
 
-    # BOE es deliberadamente independiente del BOP: así puede recuperar una
-    # convocatoria aunque las bases BOP también hubieran faltado en una carga
-    # histórica anterior. Esta es la laguna que el reconciliador BOE histórico
-    # (orientado a procesos BOP ya existentes) no cubre.
+    # Primero se recorren las fuentes BOP. En modo aplicado esto permite que
+    # BOE vincule después la convocatoria con unas bases ya recuperadas en la
+    # misma ejecución, en vez de crear innecesariamente un proceso paralelo.
     fuentes.append(_ejecutar(
-        "boe_local_historico",
-        lambda: previsualizar_importacion_boe_local(
-            hasta=hasta,
-            dias=dias,
-            aplicar=aplicar,
-        ),
+        "bop_valencia_diputacion",
+        lambda: _revisar_bop_valencia_diputacion(dias=dias, aplicar=aplicar),
     ))
-
     fuentes.append(_ejecutar(
         "bop_valencia_municipios",
         lambda: importar_municipales_bop(
@@ -75,11 +98,29 @@ def revisar_activos(*, hasta: date, dias: int = 180, aplicar: bool = False) -> d
         ),
     ))
     fuentes.append(_ejecutar(
+        "alicante_otras_entidades",
+        lambda: bootstrap_otras_entidades_alicante(
+            max_items=500,
+            aplicar=aplicar,
+        ),
+    ))
+    fuentes.append(_ejecutar(
         "bop_alicante",
         lambda: importar_bop_alicante(
             dias_solape=max(0, dias - 1),
             hasta=hasta,
             max_items=5000,
+            aplicar=aplicar,
+        ),
+    ))
+
+    # BOE se mantiene independiente del BOP para recuperar convocatorias aunque
+    # las bases se hubieran omitido, pero se ejecuta después de los BOP.
+    fuentes.append(_ejecutar(
+        "boe_local_historico",
+        lambda: previsualizar_importacion_boe_local(
+            hasta=hasta,
+            dias=dias,
             aplicar=aplicar,
         ),
     ))
