@@ -40,6 +40,21 @@ class BopValenciaFiltroProvisionTest(unittest.TestCase):
     def test_mantiene_oposicion_administrativa(self):
         self.assertTrue(_MODULE._incluido("Convocatoria oposición libre para 66 plazas de Administrativo/a"))
 
+    def test_mantiene_eventos_terminales_para_cerrar_convocatorias(self):
+        casos = (
+            "Nombramiento como funcionario de carrera de la convocatoria 05/26",
+            "Desistimiento de la convocatoria 03/25 de plazas de Administrativo/a",
+            "Anulación de la convocatoria 07/26",
+        )
+        for titulo in casos:
+            with self.subTest(titulo=titulo):
+                self.assertTrue(_MODULE._incluido(titulo))
+
+    def test_promocion_interna_no_es_oportunidad_publica(self):
+        self.assertFalse(_MODULE._es_oportunidad_administrativa("SI", "PROMOCION_INTERNA"))
+        self.assertTrue(_MODULE._es_oportunidad_administrativa("SI", "TURNO_LIBRE"))
+        self.assertFalse(_MODULE._es_oportunidad_administrativa("NO", "TURNO_LIBRE"))
+
 
 if __name__ == "__main__":
     unittest.main()
