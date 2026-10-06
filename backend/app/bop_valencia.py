@@ -479,15 +479,39 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                         proceso_id = cursor.fetchone()[0]
                         stats["procesos"] += 1
                     contenido_hash = hashlib.sha256(texto.encode("utf-8")).hexdigest()
-                    cursor.execute("SELECT id FROM publicaciones WHERE proceso_id=%s AND referencia=%s LIMIT 1", (proceso_id, registro))
+                    # La restricción de base es global por fuente, referencia y
+                    # URL. Una publicación histórica puede estar enlazada a un
+                    # proceso legado distinto; no se reasigna ni se duplica.
+                    cursor.execute(
+                        "SELECT id,proceso_id FROM publicaciones WHERE fuente_id=%s AND referencia=%s AND url=%s LIMIT 1",
+                        (fuente_id, registro, anuncio["url"]),
+                    )
                     publicacion = cursor.fetchone()
                     if publicacion is None:
-                        cursor.execute("INSERT INTO publicaciones (proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,contenido_hash,contenido_texto,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (proceso_id, fuente_id, registro, tipo_publicacion, titulo, fecha, anuncio["url"], contenido_hash, texto, Jsonb({"registro": registro, "url": anuncio["url"], "es_convocatoria_base": es_base})))
-                        publicacion_id = cursor.fetchone()[0]
-                        stats["publicaciones"] += 1
-                        if not es_base:
-                            cursor.execute("INSERT INTO cambios (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, publicacion_id, "PUBLICACION", "publicacion", None, registro, f"Nueva publicación oficial: {titulo}"))
-                            stats["cambios"] += 1
+                        cursor.execute(
+                            "INSERT INTO publicaciones (proceso_id,fuente_id,referencia,tipo,titulo,fecha_publicacion,url,contenido_hash,contenido_texto,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (fuente_id,referencia,url) DO NOTHING RETURNING id",
+                            (proceso_id, fuente_id, registro, tipo_publicacion, titulo, fecha, anuncio["url"], contenido_hash, texto, Jsonb({"registro": registro, "url": anuncio["url"], "es_convocatoria_base": es_base})),
+                        )
+                        creada = cursor.fetchone()
+                        if creada:
+                            publicacion_id = creada[0]
+                            stats["publicaciones"] += 1
+                            if not es_base:
+                                cursor.execute("INSERT INTO cambios (proceso_id,publicacion_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, publicacion_id, "PUBLICACION", "publicacion", None, registro, f"Nueva publicación oficial: {titulo}"))
+                                stats["cambios"] += 1
+                        else:
+                            stats.setdefault("publicaciones_duplicadas_omitidas", []).append({
+                                "registro": registro,
+                                "url": anuncio["url"],
+                                "proceso_id": proceso_id,
+                            })
+                    elif publicacion[1] != proceso_id:
+                        stats.setdefault("publicaciones_duplicadas_omitidas", []).append({
+                            "registro": registro,
+                            "url": anuncio["url"],
+                            "proceso_id": proceso_id,
+                            "proceso_publicacion_existente": publicacion[1],
+                        })
                     stats["anuncios"].append({"registro": registro, "titulo": titulo, "fecha_publicacion": fecha.isoformat() if fecha else None, "proceso_id": proceso_id, "identificador_estable": estable, "tipo_publicacion": tipo_publicacion})
             connection.commit()
     return stats
