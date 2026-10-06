@@ -11,10 +11,14 @@ _MODULE_PATH = Path(__file__).resolve().parents[1] / "app" / "gva_adc.py"
 
 # El módulo usa imports relativos; se carga dentro del paquete app real.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.gva_adc import _estado_proceso_adc
+from app.gva_adc import _es_promocion_interna, _estado_proceso_adc
 
 
 class EstadoProcesoAdcTest(unittest.TestCase):
+    def test_promocion_interna_se_detecta_en_castellano_y_valenciano(self) -> None:
+        self.assertTrue(_es_promocion_interna("Promoción interna"))
+        self.assertTrue(_es_promocion_interna("Promoció interna"))
+
     def test_anulacion_castellano_es_terminal(self) -> None:
         self.assertEqual(
             _estado_proceso_adc("Anulación de anuncio difícil cobertura"),

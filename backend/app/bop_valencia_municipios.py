@@ -81,8 +81,12 @@ def _es_perfil_administrativo(titulo: str) -> bool:
 
 def _clasificar_anuncio(titulo: str) -> str:
     n = _sin(titulo)
-    internos = ("libre designacion", "lliure designacio", "comision de servicios", "comissio de serveis", "concurso de traslados", "concurs de trasllats", "concurso especifico de meritos", "concurs especific de merits", "provision de puesto", "provisio de lloc", "provision del puesto", "provisio del lloc", "abierto a otras administraciones publicas", "obert a altres administracions publiques", "promocion interna", "promocio interna", "cesion de la bolsa", "cessio de la borsa", "cessio de les borses", "cesion de bolsas", "conveni de collaboracio", "conveni de col·laboracio", "convenio de colaboracion")
+    internos = ("libre designacion", "lliure designacio", "comision de servicios", "comissio de serveis", "concurso de traslados", "concurs de trasllats", "concurso especifico de meritos", "concurs especific de merits", "provision de puesto", "provisio de lloc", "provision del puesto", "provisio del lloc", "abierto a otras administraciones publicas", "obert a altres administracions publiques", "cesion de la bolsa", "cessio de la borsa", "cessio de les borses", "cesion de bolsas", "conveni de collaboracio", "conveni de col·laboracio", "convenio de colaboracion")
     if any(x in n for x in internos):
+        return "EXCLUIDO_INTERNO"
+    promocion_interna = "promocion interna" in n or "promocio interna" in n
+    turno_libre = "turno libre" in n or "torn lliure" in n or "oposicion libre" in n
+    if promocion_interna and not turno_libre:
         return "EXCLUIDO_INTERNO"
     ruido = ("subvencion", "subvencio", "premio", "premi", "ayuda", "ajuda", "ordenanza fiscal", "ordenanca fiscal", "tasa", "taxa", "gestion tributaria", "gestio tributaria", "recaptacio", "recaudacion")
     if any(x in n for x in ruido) and not any(x in n for x in ("administratiu", "administrativo", "auxiliar administratiu", "auxiliar administrativo", "tecnic d'administracio", "tecnico de administracion")):
@@ -90,6 +94,8 @@ def _clasificar_anuncio(titulo: str) -> str:
     bolsas = ("borsa d'ocupacio", "borsa de treball", "bolsa de empleo", "bolsa de trabajo", "funcionari interi", "funcionario interino", "funcionaria interina", "nomenament interi")
     if any(x in n for x in bolsas):
         return "BOLSA_TEMPORAL"
+    if "dificil cobertura" in n:
+        return "ANUNCIO_DIFICIL_COBERTURA"
     seguimiento = ("relacio provisional", "relacion provisional", "relacio definitiva", "relacion definitiva", "admeses", "admesos", "admitidos", "admitidas", "exclosos", "excloses", "excluidos", "excluidas", "tribunal", "organ tecnic de seleccio", "organo tecnico de seleccion", "primer exercici", "primer ejercicio", "data de l'exercici", "fecha del ejercicio", "nomenament", "nombramiento", "persona aprovada", "persones aprovades", "resultats", "resultados", "proposta de nomenament", "propuesta de nombramiento", "correccio d'errors", "correccion de errores", "modificacio", "modificacion", "resolucio de recursos", "resolucion de recursos", "acumulacio de places", "acumulacion de plazas")
     if any(x in n for x in seguimiento):
         return "SEGUIMIENTO"
@@ -147,7 +153,10 @@ def descubrir_municipales_bop(*, hasta: date | None = None, dias: int = 30) -> d
             fecha += timedelta(days=1)
     hallazgos.sort(key=lambda x: (x["fecha_publicacion"] or "", x["registro"]))
     conteo = Counter(h["clase"] for h in hallazgos)
-    candidatas = [h for h in hallazgos if h["clase"] == "NUEVA_CONVOCATORIA"]
+    candidatas = [
+        h for h in hallazgos
+        if h["clase"] in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA")
+    ]
     return {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "descubiertos": len(hallazgos), "resumen_clases": dict(sorted(conteo.items())), "candidatas_nuevas": len(candidatas), "dias_con_error": len(errores), "errores": errores, "hallazgos": hallazgos}
 
 
@@ -250,8 +259,8 @@ def _buscar_proceso_seguimiento(cursor, hallazgo: dict[str, Any]) -> tuple[dict[
 
 def importar_municipales_bop(*, hasta: date, dias: int = 30, aplicar: bool = False) -> dict[str, Any]:
     diagnostico = descubrir_municipales_bop(hasta=hasta, dias=dias)
-    hallazgos = [h for h in diagnostico["hallazgos"] if h["clase"] in ("NUEVA_CONVOCATORIA", "SEGUIMIENTO")]
-    candidatas = [h for h in hallazgos if h["clase"] == "NUEVA_CONVOCATORIA"]
+    hallazgos = [h for h in diagnostico["hallazgos"] if h["clase"] in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO")]
+    candidatas = [h for h in hallazgos if h["clase"] in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA")]
     seguimientos = [h for h in hallazgos if h["clase"] == "SEGUIMIENTO"]
     resultado = {"modo": "APLICAR" if aplicar else "SOLO_REVISION", "desde": diagnostico["desde"], "hasta": diagnostico["hasta"], "candidatas": len(candidatas), "seguimientos": len(seguimientos), "dias_con_error": diagnostico["dias_con_error"], "nuevos": 0, "existentes": 0, "seguimientos_vinculados": 0, "seguimientos_revision": 0, "seguimientos_sin_cambios": 0, "organismos_creados": 0, "detalle": []}
 
@@ -340,10 +349,15 @@ def importar_municipales_bop(*, hasta: date, dias: int = 30, aplicar: bool = Fal
                 cursor.execute("INSERT INTO organismos (nombre,tipo,municipio,provincia,activo,created_at,updated_at) VALUES (%s,'AYUNTAMIENTO',%s,'Valencia',TRUE,NOW(),NOW()) RETURNING id", (nombre, municipio))
                 organismo_id = cursor.fetchone()["id"]
                 resultado["organismos_creados"] += 1
-            cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,plazas,estado,fecha_convocatoria,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json,updated_at) VALUES (%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW()) RETURNING id", (organismo_id, h["registro"], estable, h["titulo"], _extraer_plazas(h["titulo"]), h["fecha_publicacion"], fuente_id, Jsonb({"url_oficial": h["url"], "bop_registro": h["registro"], "origen": "BOP_VALENCIA_MUNICIPAL"})))
+            tipo_proceso = (
+                "Anuncio difícil cobertura (ADC)"
+                if h["clase"] == "ANUNCIO_DIFICIL_COBERTURA"
+                else None
+            )
+            cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,tipo_proceso,plazas,estado,fecha_convocatoria,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json,updated_at) VALUES (%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW()) RETURNING id", (organismo_id, h["registro"], estable, h["titulo"], tipo_proceso, _extraer_plazas(h["titulo"]), h["fecha_publicacion"], fuente_id, Jsonb({"url_oficial": h["url"], "bop_registro": h["registro"], "origen": "BOP_VALENCIA_MUNICIPAL", "clase": h["clase"]})))
             pid = cursor.fetchone()["id"]
             resultado["nuevos"] += 1
-            resultado["detalle"].append({"registro": h["registro"], "clase": "NUEVA_CONVOCATORIA", "estado": "NUEVO", "proceso_id": pid, "municipio": municipio})
+            resultado["detalle"].append({"registro": h["registro"], "clase": h["clase"], "estado": "NUEVO", "proceso_id": pid, "municipio": municipio})
 
         if aplicar:
             connection.commit()

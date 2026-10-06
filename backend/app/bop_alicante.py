@@ -194,7 +194,10 @@ def consultar_bop_alicante(
     resultado["administrativos"] = len(administrativos)
     resultado["revision"] = sum(1 for r in administrativos if r["clase"] == "REVISION")
     resultado["resumen_clases"] = dict(sorted(conteo.items()))
-    resultado["candidatas_nuevas"] = conteo.get("NUEVA_CONVOCATORIA", 0)
+    resultado["candidatas_nuevas"] = (
+        conteo.get("NUEVA_CONVOCATORIA", 0)
+        + conteo.get("ANUNCIO_DIFICIL_COBERTURA", 0)
+    )
     resultado["seguimientos"] = conteo.get("SEGUIMIENTO", 0)
     resultado["detalle"] = administrativos
     return resultado
@@ -242,11 +245,11 @@ def preparar_importacion_bop_alicante(
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         for hallazgo in revision["detalle"]:
             clase = hallazgo["clase"]
-            if clase not in ("NUEVA_CONVOCATORIA", "SEGUIMIENTO"):
+            if clase not in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO"):
                 resultado["excluidos"] += 1
                 continue
 
-            if clase == "NUEVA_CONVOCATORIA":
+            if clase in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA"):
                 cursor.execute(
                     "SELECT id FROM procesos WHERE identificador_estable=%s",
                     (hallazgo["referencia"],),
@@ -369,7 +372,7 @@ def importar_bop_alicante(
 
         for hallazgo in revision["detalle"]:
             clase = hallazgo["clase"]
-            if clase not in ("NUEVA_CONVOCATORIA", "SEGUIMIENTO"):
+            if clase not in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO"):
                 continue
 
             fecha_publicacion = _fecha_bop(hallazgo.get("fecha_publicacion"))
@@ -462,10 +465,10 @@ def importar_bop_alicante(
                     cursor.execute(
                         """
                         INSERT INTO procesos
-                            (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,
+                            (organismo_id,codigo_externo,identificador_estable,denominacion,tipo_proceso,grupo,subgrupo,
                              estado,fecha_convocatoria,fuente_principal_id,es_oportunidad,
                              ambito_administrativo,datos_json,updated_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW())
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,TRUE,'SI',%s,NOW())
                         RETURNING id
                         """,
                         (
@@ -473,6 +476,11 @@ def importar_bop_alicante(
                             hallazgo["edicto"],
                             hallazgo["referencia"],
                             hallazgo["extracto"],
+                            (
+                                "Anuncio difícil cobertura (ADC)"
+                                if clase == "ANUNCIO_DIFICIL_COBERTURA"
+                                else None
+                            ),
                             grupo,
                             subgrupo,
                             fecha_publicacion,

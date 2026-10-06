@@ -378,7 +378,7 @@ def preparar_revision_castellon(
     revision = consultar_bop_castellon(desde=desde, hasta=hasta)
     detalle = []
     for hallazgo in revision["detalle"]:
-        if hallazgo["clase"] not in ("NUEVA_CONVOCATORIA", "SEGUIMIENTO"):
+        if hallazgo["clase"] not in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO"):
             continue
         identidad = _identidad_organismo(hallazgo.get("organismo"))
         detalle.append({
@@ -388,7 +388,7 @@ def preparar_revision_castellon(
             "organismo_fuente": hallazgo.get("organismo"),
             "organismo": identidad,
             "identidad_admitida": (
-                hallazgo["clase"] == "NUEVA_CONVOCATORIA"
+                hallazgo["clase"] in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA")
                 and identidad["tipo"] in ("AYUNTAMIENTO", "DIPUTACION")
             ),
         })
@@ -429,11 +429,11 @@ def preparar_importacion_bop_castellon(
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         for hallazgo in revision["detalle"]:
             clase = hallazgo["clase"]
-            if clase not in ("NUEVA_CONVOCATORIA", "SEGUIMIENTO"):
+            if clase not in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO"):
                 resultado["excluidos"] += 1
                 continue
 
-            if clase == "NUEVA_CONVOCATORIA":
+            if clase in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA"):
                 cursor.execute(
                     "SELECT id FROM procesos WHERE identificador_estable=%s",
                     (hallazgo["referencia"],),
@@ -568,7 +568,7 @@ def importar_bop_castellon(
 
         for hallazgo in revision["detalle"]:
             clase = hallazgo["clase"]
-            if clase not in ("NUEVA_CONVOCATORIA", "SEGUIMIENTO"):
+            if clase not in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO"):
                 resultado["excluidos"] += 1
                 continue
 
@@ -725,10 +725,10 @@ def importar_bop_castellon(
                     cursor.execute(
                         """
                         INSERT INTO procesos
-                            (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,
+                            (organismo_id,codigo_externo,identificador_estable,denominacion,tipo_proceso,grupo,subgrupo,
                              estado,plazas,fecha_convocatoria,fuente_principal_id,es_oportunidad,
                              ambito_administrativo,datos_json,updated_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,%s,TRUE,'SI',%s,NOW())
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',%s,%s,%s,TRUE,'SI',%s,NOW())
                         RETURNING id
                         """,
                         (
@@ -736,6 +736,11 @@ def importar_bop_castellon(
                             hallazgo["id_anuncio"],
                             hallazgo["referencia"],
                             hallazgo["titulo"],
+                            (
+                                "Anuncio difícil cobertura (ADC)"
+                                if clase == "ANUNCIO_DIFICIL_COBERTURA"
+                                else None
+                            ),
                             grupo,
                             subgrupo,
                             hallazgo.get("plazas"),

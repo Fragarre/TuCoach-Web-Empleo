@@ -51,6 +51,11 @@ def _sin_acentos(texto: str) -> str:
     return "".join(c for c in normalizado if unicodedata.category(c) != "Mn").lower()
 
 
+def _es_promocion_interna(texto: str) -> bool:
+    normalizado = _sin_acentos(texto)
+    return "promocion interna" in normalizado or "promocio interna" in normalizado
+
+
 def _id_emp(href: str) -> int | None:
     valores = parse_qs(urlparse(href).query).get("id_emp")
     if not valores:
@@ -266,6 +271,7 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
         or "anuncio dificil cobertura" in norm
         or denominacion.upper().startswith("ADC ")
     )
+    promocion_interna = _es_promocion_interna(texto)
 
     plazo = _plazo_adc(soup, texto)
     apertura = _fecha(texto, "Apertura plazo") or plazo["apertura"]
@@ -298,9 +304,13 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
         "url": url,
         "bolsas_relacionadas": bolsas,
         "evidencia_relacion": ("PDF_OFICIAL" if bolsas_pdf else ("TEXTO_FICHA" if bolsas_ficha else None)),
-        "valido_empleo": bool(es_adc and len(codigos) == 1 and especialidad is None),
-        "motivo_exclusion": especialidad if especialidad else (
-            None if es_adc and len(codigos) == 1 else "fuera_filtro_administrativo"
+        "valido_empleo": bool(
+            es_adc and len(codigos) == 1 and especialidad is None and not promocion_interna
+        ),
+        "motivo_exclusion": (
+            especialidad
+            or ("promocion_interna" if promocion_interna else None)
+            or (None if es_adc and len(codigos) == 1 else "fuera_filtro_administrativo")
         ),
     }
 

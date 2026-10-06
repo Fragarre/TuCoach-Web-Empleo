@@ -63,7 +63,7 @@ def _estado_ficha_gva_directa(client: httpx.Client, proceso: dict[str, Any]) -> 
     id_emp = int(proceso["id_emp"])
     datos = proceso.get("datos_json") or {}
     url = str(datos.get("url_detalle") or f"{gva_clean.GVA_BASE_URL}/es/detall-ocupacio-publica?id_emp={id_emp}")
-    respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+    respuesta = _get_gva_con_reintentos(client, url)
     parsed = _clasificar_detalle(id_emp, url, respuesta.text)
     pub = parsed.get("publicacion") or {}
     metadatos = parsed.get("datos_json") or {}
@@ -306,20 +306,34 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     """
     procesos = _cargar_bolsas_activas()
     resultados: dict[int, dict[str, Any]] = {}
+    errores: list[dict[str, Any]] = []
     with nuevo_cliente() as client:
         for proceso in procesos:
-            referencia = proceso.get("referencia_estatal")
-            if referencia is not None:
-                html = _obtener_html(client, int(referencia))
-                resultados[int(proceso["id"])] = extraer_seguimientos_validos(html)
-                continue
+            try:
+                referencia = proceso.get("referencia_estatal")
+                if referencia is not None:
+                    html = _obtener_html(client, int(referencia))
+                    resultados[int(proceso["id"])] = extraer_seguimientos_validos(html)
+                    continue
 
-            # Las bolsas GVA directas se comparan por una instantánea estable
-            # de su ficha oficial, sin inventar referencia estatal.
-            resultados[int(proceso["id"])] = _estado_ficha_gva_directa(client, proceso)
+                # Las bolsas GVA directas se comparan por una instantánea estable
+                # de su ficha oficial, sin inventar referencia estatal.
+                resultados[int(proceso["id"])] = _estado_ficha_gva_directa(client, proceso)
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+                errores.append({
+                    "proceso_id": int(proceso["id"]),
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
 
-    estatales = [p for p in procesos if p.get("referencia_estatal") is not None]
-    directas = [p for p in procesos if p.get("referencia_estatal") is None and p.get("id_emp") is not None]
+    estatales = [
+        p for p in procesos
+        if p.get("referencia_estatal") is not None and int(p["id"]) in resultados
+    ]
+    directas = [
+        p for p in procesos
+        if p.get("referencia_estatal") is None and p.get("id_emp") is not None
+        and int(p["id"]) in resultados
+    ]
     plan = _planificar(
         estatales,
         {int(p["id"]): resultados[int(p["id"])] for p in estatales},
@@ -340,7 +354,7 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
         a["accion"] == "ACTUALIZAR_BASELINE_GVA_DIRECTO" for a in acciones_directas
     )
     if not aplicar:
-        return {"modo": "SOLO_REVISION", "escrituras_bd": False, **plan}
+        return {"modo": "SOLO_REVISION", "escrituras_bd": False, **plan, "errores": errores}
 
     publicaciones_creadas = 0
     baseline_creados = 0
@@ -464,4 +478,5 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
         "baseline_creados": baseline_creados,
         "publicaciones_creadas": publicaciones_creadas,
         "procesos_finalizados": procesos_finalizados,
+        "errores": errores,
     }

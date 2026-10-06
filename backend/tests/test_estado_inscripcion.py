@@ -55,6 +55,53 @@ class EstadoInscripcionTest(unittest.TestCase):
             hoy=date(2026, 9, 27),
         )
         self.assertNotEqual(resultado["codigo"], "PENDIENTE_BOE")
+
+    def test_plazo_boe_sin_tipo_de_dia_se_calcula_como_habil(self) -> None:
+        resultado = estado_inscripcion(
+            {
+                "fecha_boe_publicacion": date(2026, 9, 1),
+                "datos_json": {"plazo_solicitudes_literal": "20 días"},
+            },
+            hoy=date(2026, 9, 2),
+        )
+        self.assertEqual(resultado["codigo"], "ABIERTO")
+        self.assertEqual(resultado["fecha_cierre"], date(2026, 9, 29))
+        self.assertEqual(resultado["dias_habiles"], 20)
+
+    def test_plazo_boe_expresamente_natural_no_se_recalcula_como_habil(self) -> None:
+        resultado = estado_inscripcion(
+            {
+                "fecha_boe_publicacion": date(2026, 9, 1),
+                "datos_json": {"plazo_solicitudes_literal": "20 días naturales"},
+            },
+            hoy=date(2026, 9, 2),
+        )
+        self.assertEqual(resultado["codigo"], "PLAZO_LITERAL")
+        self.assertIsNone(resultado["dias_habiles"])
+
+    def test_boe_publicado_sin_plazo_conserva_la_fecha_de_publicacion(self) -> None:
+        resultado = estado_inscripcion(
+            {
+                "fecha_boe_publicacion": date(2026, 9, 1),
+                "datos_json": {"boe_local": {"boe_id": "BOE-A-2026-1"}},
+            },
+            hoy=date(2026, 9, 2),
+        )
+        self.assertEqual(resultado, {
+            "codigo": "BOE_PUBLICADO_SIN_PLAZO",
+            "fecha_boe": date(2026, 9, 1),
+        })
+
+    def test_boe_agregado_sin_plazo_conserva_su_fecha(self) -> None:
+        resultado = estado_inscripcion({
+            "datos_json": {"boe_local_agregados": [{
+                "boe_id": "BOE-A-2026-2",
+                "fecha_boe": "2026-09-02",
+            }]},
+        })
+        self.assertEqual(resultado["codigo"], "BOE_PUBLICADO_SIN_PLAZO")
+        self.assertEqual(resultado["boe_publicaciones"][0]["fecha_boe"], date(2026, 9, 2))
+
     def test_bop_sin_boe_sigue_pendiente(self) -> None:
         self.assertEqual(
             estado_inscripcion({"datos_json": {"origen": "BOP_VALENCIA_MUNICIPAL"}}),

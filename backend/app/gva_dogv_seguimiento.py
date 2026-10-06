@@ -134,6 +134,7 @@ def _planificar() -> dict[str, Any]:
     procesos = _cargar_procesos_activos()
     hoy = date.today()
     acciones: list[dict[str, Any]] = []
+    errores: list[dict[str, Any]] = []
 
     with nuevo_cliente() as estatal, httpx.Client(
         timeout=httpx.Timeout(30.0, connect=10.0),
@@ -163,12 +164,21 @@ def _planificar() -> dict[str, Any]:
                 continue
 
             if int(estado.get("version") or 0) < VERSION_ESTADO_DOGV or estado.get("fuente") != "DOGV_DIRECTO":
-                identidad, semillas = _identidad_y_semillas_migracion(estatal, proceso)
-                descubiertos = _descubrir_dogv_en_fechas(
-                    dogv,
-                    identidad=identidad,
-                    fechas_semilla=semillas,
-                )
+                try:
+                    identidad, semillas = _identidad_y_semillas_migracion(estatal, proceso)
+                    descubiertos = _descubrir_dogv_en_fechas(
+                        dogv,
+                        identidad=identidad,
+                        fechas_semilla=semillas,
+                    )
+                except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+                    errores.append({
+                        "proceso_id": int(proceso["id"]),
+                        "referencia_estatal": int(proceso["referencia_estatal"]),
+                        "fase": "migracion_baseline",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
+                    continue
                 descubiertos = [x for x in descubiertos if not x.get("error")]
                 propuestos = sorted({str(x["signatura"]) for x in descubiertos})
                 anteriores = sorted({str(x) for x in (estado.get("vistos") or [])})
@@ -187,11 +197,20 @@ def _planificar() -> dict[str, Any]:
 
             identidad = _identidad_estado_o_denominacion(proceso, estado)
             fechas = _fechas_revision(estado, hoy)
-            descubiertos = _descubrir_dogv_en_fechas(
-                dogv,
-                identidad=identidad,
-                fechas_semilla=fechas,
-            )
+            try:
+                descubiertos = _descubrir_dogv_en_fechas(
+                    dogv,
+                    identidad=identidad,
+                    fechas_semilla=fechas,
+                )
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+                errores.append({
+                    "proceso_id": int(proceso["id"]),
+                    "referencia_estatal": int(proceso["referencia_estatal"]),
+                    "fase": "revision_dogv",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                continue
             descubiertos = [x for x in descubiertos if not x.get("error")]
             vistos = {str(x) for x in (estado.get("vistos") or [])}
             nuevos = [
@@ -214,6 +233,7 @@ def _planificar() -> dict[str, Any]:
         "fuente": DOGV_API,
         "version_estado": VERSION_ESTADO_DOGV,
         "acciones": acciones,
+        "errores": errores,
         "resumen": {
             "procesos": len(acciones),
             "convocatorias": sum(a["accion"] != "BOLSA_SEGUIMIENTO_SIMPLIFICADO" for a in acciones),

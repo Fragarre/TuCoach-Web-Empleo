@@ -83,10 +83,15 @@ def clasificar_evento_terminal(tipo_proceso: str | None, titulo: str | None) -> 
 
 def _dias_habiles_literal(literal: str) -> int | None:
     normalizado = _sin(literal)
-    m = re.search(r"\b(\d+)\s+dias?\s+habiles\b", normalizado, re.I)
+    # Cuando la convocatoria no precisa el tipo de día, el criterio del
+    # catálogo es tratarlo como hábil. Si indica "naturales", se conserva
+    # literalmente para no recalcularlo como hábil.
+    if re.search(r"\bdias?\s+naturales?\b", normalizado, re.I):
+        return None
+    m = re.search(r"\b(\d+)\s+dias?(?:\s+habiles)?\b", normalizado, re.I)
     if m:
         return int(m.group(1))
-    m = re.search(r"\b([a-z]+)\s+dias?\s+habiles\b", normalizado, re.I)
+    m = re.search(r"\b([a-z]+)\s+dias?(?:\s+habiles)?\b", normalizado, re.I)
     if m:
         return _NUMEROS_PLAZO.get(m.group(1))
     return None
@@ -151,8 +156,7 @@ def _estado_plazo_boe(
         "fecha_apertura": apertura,
         "fecha_cierre": cierre,
         "fecha_cierre_calculada": True,
-        "fecha_cierre_sin_festivos_locales": True,
-        "aviso_festivos_locales": "Confirmar fechas en función de días festivos exclusivos de este municipio",
+        "calendario_aplicado": "COMUNITAT_VALENCIANA",
         "dias_habiles": dias,
         "literal": literal,
     }
@@ -175,12 +179,22 @@ def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> d
     agregados = datos.get("boe_local_agregados")
     if isinstance(agregados, list) and agregados:
         plazos = []
+        publicaciones_sin_plazo = []
         for boe in agregados:
             if not isinstance(boe, dict):
                 continue
             literal_agregado = str(boe.get("plazo_solicitudes_literal") or "").strip()
             fecha_agregada = _fecha_iso(boe.get("fecha_boe"))
-            if not literal_agregado or not fecha_agregada:
+            if not fecha_agregada:
+                continue
+            if not literal_agregado:
+                publicaciones_sin_plazo.append({
+                    "codigo_externo": boe.get("codigo_externo"),
+                    "boe_id": boe.get("boe_id"),
+                    "fecha_boe": fecha_agregada,
+                    "denominacion": boe.get("denominacion"),
+                    "plazas": boe.get("plazas"),
+                })
                 continue
             plazo = _estado_plazo_boe(
                 fecha_boe=fecha_agregada,
@@ -205,6 +219,11 @@ def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> d
                 "plazos_multiples": True,
                 "plazos": plazos,
             }
+        if publicaciones_sin_plazo:
+            return {
+                "codigo": "BOE_PUBLICADO_SIN_PLAZO",
+                "boe_publicaciones": publicaciones_sin_plazo,
+            }
 
     boe_local = datos.get("boe_local") if isinstance(datos.get("boe_local"), dict) else {}
     literal = str(
@@ -212,7 +231,10 @@ def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> d
         or boe_local.get("plazo_solicitudes_literal")
         or ""
     ).strip()
-    fecha_boe = proceso.get("fecha_boe_publicacion") or proceso.get("fecha_convocatoria")
+    fecha_boe_publicacion = _fecha_iso(
+        proceso.get("fecha_boe_publicacion") or boe_local.get("fecha_boe")
+    )
+    fecha_boe = fecha_boe_publicacion or proceso.get("fecha_convocatoria")
     if literal and fecha_boe:
         return _estado_plazo_boe(
             fecha_boe=fecha_boe,
@@ -220,6 +242,11 @@ def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> d
             hoy=hoy,
             organismo=proceso.get("organismo_nombre"),
         )
+    if fecha_boe_publicacion:
+        return {
+            "codigo": "BOE_PUBLICADO_SIN_PLAZO",
+            "fecha_boe": fecha_boe_publicacion,
+        }
 
     origen = str(datos.get("origen") or "").upper()
     # Las oportunidades nacidas de un BOP cuyas bases remiten la apertura del

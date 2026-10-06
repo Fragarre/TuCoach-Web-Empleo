@@ -75,7 +75,6 @@ def _descubrir_por_codigo(client, codigo: str) -> dict[int, str]:
             "tamanyoPagina": "100",
             "elementosPaginacion": "100",
         },
-        intentos=1,
     )
     soup = BeautifulSoup(respuesta.text, "html.parser")
     encontrados: dict[int, str] = {}
@@ -307,7 +306,7 @@ def inventariar_bolsas_gva_complementarias() -> dict[str, Any]:
         excluidas: list[dict[str, Any]] = []
         for id_emp, url in sorted(descubiertas.items()):
             try:
-                respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+                respuesta = _get_gva_con_reintentos(client, url)
                 proceso = _clasificar_detalle(id_emp, url, respuesta.text)
             except Exception as exc:
                 excluidas.append({
@@ -371,7 +370,7 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
         excluidos: list[dict[str, Any]] = []
         for id_emp, url in sorted(descubiertas.items()):
             try:
-                respuesta = _get_gva_con_reintentos(client, url, intentos=1)
+                respuesta = _get_gva_con_reintentos(client, url)
                 proceso = _clasificar_detalle(id_emp, url, respuesta.text)
             except Exception as exc:
                 excluidos.append({
@@ -423,6 +422,10 @@ def planificar_bolsas_gva_complementarias() -> dict[str, Any]:
         "actualizar": sum(a["accion"] == "ACTUALIZAR" for a in acciones),
         "ya_existentes": sum(a["accion"] == "YA_EXISTE" for a in acciones),
         "diagnostico": diagnostico,
+        "errores": [
+            *[item for item in diagnostico if item.get("estado") == "ERROR"],
+            *[item for item in excluidos if item.get("motivo") == "error_detalle"],
+        ],
         "acciones": acciones,
         "excluidos": excluidos,
     }
@@ -459,13 +462,29 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
 
     # Redescubrimos inmediatamente antes de escribir y volvemos a deduplicar.
     descubiertas: dict[int, str] = {}
+    errores: list[dict[str, Any]] = []
     with nuevo_cliente() as client:
         for codigo in CODIGOS_ADMIN_ESTRICTOS:
-            descubiertas.update(_descubrir_por_codigo(client, codigo))
+            try:
+                descubiertas.update(_descubrir_por_codigo(client, codigo))
+            except Exception as exc:
+                errores.append({
+                    "codigo": codigo,
+                    "fase": "descubrimiento",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
         candidatos: list[dict[str, Any]] = []
         for id_emp, url in sorted(descubiertas.items()):
-            respuesta = _get_gva_con_reintentos(client, url, intentos=1)
-            proceso = _clasificar_detalle(id_emp, url, respuesta.text)
+            try:
+                respuesta = _get_gva_con_reintentos(client, url)
+                proceso = _clasificar_detalle(id_emp, url, respuesta.text)
+            except Exception as exc:
+                errores.append({
+                    "id_emp": id_emp,
+                    "fase": "detalle",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                continue
             if proceso.get("es_oportunidad"):
                 candidatos.append(proceso)
 
@@ -607,4 +626,5 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
         "actualizables": len(actualizables),
         "actualizados": actualizados,
         "omitidas_por_deduplicacion_o_fase": len(candidatos) - len(insertables) - len(actualizables),
+        "errores": [*plan.get("errores", []), *errores],
     }

@@ -353,6 +353,9 @@ def importar_gva_estatal(*, desde: date, hasta: date, aplicar: bool = False) -> 
     persistencia = persistir_registros(registros, aplicar=aplicar)
     seguimiento = actualizar_seguimientos_gva(aplicar=aplicar)
     auditoria_dogv = diagnosticar_seguimiento_dogv() if not aplicar else None
+    errores_seguimiento = list(seguimiento.get("errores") or [])
+    bolsas = seguimiento.get("bolsas") or {}
+    errores_seguimiento.extend(list(bolsas.get("errores") or []))
     return {
         "modo": "APLICADO" if aplicar else "SOLO_REVISION",
         "desde": desde.isoformat(),
@@ -365,5 +368,6 @@ def importar_gva_estatal(*, desde: date, hasta: date, aplicar: bool = False) -> 
         "revision": revision,
         "persistencia": persistencia,
         "seguimiento": seguimiento,
+        "errores": errores_seguimiento,
         "auditoria_dogv": auditoria_dogv,
     }

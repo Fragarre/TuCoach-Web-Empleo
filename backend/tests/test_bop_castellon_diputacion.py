@@ -15,8 +15,32 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 seleccionar = _MODULE.seleccionar_proceso_seguimiento
 
+_CASTELLON_SPEC = importlib.util.spec_from_file_location(
+    "app.bop_castellon", APP_DIR / "bop_castellon.py"
+)
+assert _CASTELLON_SPEC and _CASTELLON_SPEC.loader
+_CASTELLON = importlib.util.module_from_spec(_CASTELLON_SPEC)
+_CASTELLON_SPEC.loader.exec_module(_CASTELLON)
+clasificar_castellon = _CASTELLON._clasificar_anuncio_castellon
+
 
 class SeguimientoDiputacionTest(unittest.TestCase):
+    def test_dificil_cobertura_administrativa_se_clasifica_como_candidata(self):
+        self.assertEqual(
+            clasificar_castellon(
+                "Diputación. Bolsa provisión puestos difícil cobertura de auxiliar administrativo"
+            ),
+            "ANUNCIO_DIFICIL_COBERTURA",
+        )
+
+    def test_dificil_cobertura_promocion_interna_sigue_excluida(self):
+        self.assertEqual(
+            clasificar_castellon(
+                "Bolsa de difícil cobertura de auxiliar administrativo por promoción interna"
+            ),
+            "EXCLUIDO_INTERNO",
+        )
+
     def test_identidad_sintetica_permita_matching_conservador(self):
         hallazgo = {
             "denominacion": "Diputación Provincial de Castellón",
