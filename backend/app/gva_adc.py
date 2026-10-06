@@ -134,6 +134,7 @@ def _plazo_adc(soup: BeautifulSoup, texto: str) -> dict[str, str | None]:
         "cierre": _fecha_iso(m.group(2)),
     }
 
+
 def _plazas(texto: str) -> int | None:
     m = re.search(r"(?:Numero|Número) de plazas totales\s*:?[ \t]*(\d+)", texto, re.I)
     if not m:
@@ -155,17 +156,39 @@ def _bolsas_explicitas(denominacion: str) -> list[str]:
         halladas.add(m.group(1).upper().replace(" ", ""))
     return sorted(halladas)
 
-def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
-    """Extrae bolsas solo cuando el PDF oficial contiene una lista explícita."""
+
+def _extraer_bolsas_texto_oficial(texto: str) -> list[str]:
+    """Extrae referencias de bolsa cuando el documento oficial las identifica explícitamente."""
+    normalizado = _sin_acentos(texto)
     halladas: set[str] = set()
-    # La lista oficial puede continuar en líneas siguientes del PDF. El bloque
-    # admite únicamente referencias y separadores; se detiene al empezar texto.
+    patron_ref = re.compile(r"\b\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\b", re.I)
+
+    # Formato habitual en adjudicaciones: "... Bolsa 444" / "... Borsa 444".
+    patron_singular = re.compile(
+        r"\b(?:bolsa|borsa)\s*(?:n(?:um(?:ero)?)?[.ºo]?\s*)?"
+        r"(\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?)\b",
+        re.I,
+    )
+    for m in patron_singular.finditer(normalizado):
+        halladas.add(m.group(1).upper().replace(" ", ""))
+
+    # Formato de listas: "Bolsas: 241, 332, 435 ...". El bloque admite
+    # referencias y separadores y se detiene cuando vuelve a empezar texto.
     patron_lista = re.compile(
         r"\b(?:bolsas|borses)\s*[:.]?\s*"
         r"((?:\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\s*[,.;]?\s*)+)",
         re.I,
     )
-    patron_ref = re.compile(r"\b\d{2,4}(?:/\d{2,4})?(?:[- ]?[bl])?\b", re.I)
+    for m in patron_lista.finditer(normalizado):
+        for ref in patron_ref.findall(m.group(1)):
+            halladas.add(ref.upper().replace(" ", ""))
+
+    return sorted(halladas)
+
+
+def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
+    """Extrae bolsas únicamente de PDF oficiales enlazados por la ficha GVA."""
+    halladas: set[str] = set()
     for documento in documentos:
         url = documento.get("url")
         if not url:
@@ -176,11 +199,9 @@ def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]
             texto_pdf = "\n".join((pagina.extract_text() or "") for pagina in lector.pages)
         except Exception:
             continue
-        normalizado = _sin_acentos(texto_pdf)
-        for m in patron_lista.finditer(normalizado):
-            for ref in patron_ref.findall(m.group(1)):
-                halladas.add(ref.upper().replace(" ", ""))
+        halladas.update(_extraer_bolsas_texto_oficial(texto_pdf))
     return sorted(halladas)
+
 
 def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     norm = _sin_acentos(texto)
@@ -228,6 +249,7 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
         "documentos_pdf": documentos,
     }
 
+
 def _estado_proceso_adc(etapa_actual: str | None) -> str:
     """Deriva actividad del ADC solo de evidencias oficiales inequívocas."""
     etapa = _sin_acentos(etapa_actual or "")
@@ -239,6 +261,7 @@ def _estado_proceso_adc(etapa_actual: str | None) -> str:
 def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, estado_plazo: str | None) -> dict[str, Any]:
     """Determina si el ADC admite actuación del usuario en la fecha de consulta."""
     hoy = date.today()
+
     def convertir(valor: Any) -> date | None:
         iso = _fecha_iso(valor)
         return date.fromisoformat(iso) if iso else None
@@ -559,6 +582,7 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
         "no_resueltas": sorted(set(no_resueltas)),
     }
 
+
 def _huella_novedad_adc(adc: dict[str, Any]) -> str:
     """Identifica de forma estable la etapa/documento oficial actualmente visible."""
     fechas = adc.get("fechas_publicacion") or []
@@ -624,7 +648,7 @@ def _publicacion_adc_en_bolsa(
             }),
         ),
     )
-    publicacion_id = cursor.fetchone()["id"]
+    cursor.fetchone()
     return True
 
 
@@ -677,8 +701,7 @@ def _publicacion_etapa_adc(
             }),
         ),
     )
-    publicacion_id = cursor.fetchone()["id"]
-    titulo = f"ADC {adc.get('numero_adc') or adc['id_emp']}: {adc.get('etapa_actual_gva') or 'novedad'}"
+    cursor.fetchone()
     return True
 
 
