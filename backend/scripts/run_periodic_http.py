@@ -17,7 +17,7 @@ from app.periodic import ejecutar_periodico
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ejecuta directamente el ciclo periódico de TuCoach Empleo")
     parser.add_argument("--aplicar", action="store_true", help="Aplica cambios; sin esta opción solo revisa")
-    parser.add_argument("--dias", type=int, default=7, help="Días de solape (1-30)")
+    parser.add_argument("--dias", type=int, default=7, help="Días de solape (1-120)")
     args = parser.parse_args()
 
     try:
