@@ -451,16 +451,19 @@ def _resolver_identidad_gva_directa(cursor) -> tuple[int, int]:
 
 def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, Any]:
     """Inserta bolsas nuevas y refresca únicamente las bolsas directas que gestiona este módulo."""
-    plan = planificar_bolsas_gva_complementarias()
-    nuevas = [a for a in plan["acciones"] if a["accion"] == "NUEVA"]
     if not aplicar:
+        plan = planificar_bolsas_gva_complementarias()
+        nuevas = [a for a in plan["acciones"] if a["accion"] == "NUEVA"]
         return {
             **plan,
             "persistencia": "SOLO_REVISION",
             "insertables": len(nuevas),
         }
 
-    # Redescubrimos inmediatamente antes de escribir y volvemos a deduplicar.
+    # En modo aplicado se descubre una sola vez, inmediatamente antes de
+    # escribir. Antes se ejecutaba primero una planificación completa y se
+    # repetían las mismas consultas GVA; esa primera lectura no intervenía en
+    # la persistencia y multiplicaba los timeouts cuando la Sede no respondía.
     descubiertas: dict[int, str] = {}
     errores: list[dict[str, Any]] = []
     with nuevo_cliente() as client:

@@ -28,6 +28,18 @@ from .clasificacion_auditoria import revisar_clasificacion_puestos
 
 
 DIAS_SOLAPE_DEFECTO = 7
+LIMITE_DIAS_ORDINARIO = 30
+
+
+def _validar_dias_solape(*, dias_solape: int, historico: bool) -> None:
+    """Protege el cron ordinario y exige una intención explícita para históricos."""
+    if dias_solape < 1:
+        raise ValueError("dias_solape debe ser al menos 1")
+    if not historico and dias_solape > LIMITE_DIAS_ORDINARIO:
+        raise ValueError(
+            f"dias_solape debe estar entre 1 y {LIMITE_DIAS_ORDINARIO} "
+            "en modo ordinario; use historico=True para una revisión excepcional"
+        )
 
 
 def _estado_fuente(valor: Any) -> str:
@@ -163,7 +175,13 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
     return resultado
 
 
-def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_solape: int = DIAS_SOLAPE_DEFECTO) -> dict[str, Any]:
+def ejecutar_periodico(
+    *,
+    aplicar: bool = False,
+    hoy: date | None = None,
+    dias_solape: int = DIAS_SOLAPE_DEFECTO,
+    historico: bool = False,
+) -> dict[str, Any]:
     """Orquesta las fuentes validadas de Empleo con aislamiento por fuente.
 
     Fuentes incluidas:
@@ -178,20 +196,24 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
     aislada: un fallo se registra como ERROR y el ciclo continúa con las demás.
     En APLICADO todas las fuentes usan la misma ventana solapada para tolerar
     caídas puntuales sin depender de que el cron haya ejecutado el día anterior.
+    El modo histórico permite una ventana superior a 30 días únicamente cuando
+    se solicita expresamente y nunca envía notificaciones.
     """
-    if dias_solape < 1 or dias_solape > 30:
-        raise ValueError("dias_solape debe estar entre 1 y 30")
+    _validar_dias_solape(dias_solape=dias_solape, historico=historico)
 
     fecha_hoy = hoy or date.today()
     desde = fecha_hoy - timedelta(days=dias_solape - 1)
-    visibles_antes = ids_oportunidades_visibles() if aplicar else set()
-    novedades_seguimiento_antes = ids_novedades_seguimiento() if aplicar else set()
+    notificaciones_habilitadas = bool(aplicar and not historico)
+    visibles_antes = ids_oportunidades_visibles() if notificaciones_habilitadas else set()
+    novedades_seguimiento_antes = ids_novedades_seguimiento() if notificaciones_habilitadas else set()
     resultado: dict[str, Any] = {
         "modo": "APLICADO" if aplicar else "SOLO_REVISION",
         "escrituras_bd": aplicar,
         "desde": desde.isoformat(),
         "hasta": fecha_hoy.isoformat(),
         "dias_solape": dias_solape,
+        "historico": historico,
+        "notificaciones_habilitadas": notificaciones_habilitadas,
         "fuentes": {},
         "estado_fuentes": {},
     }
@@ -338,7 +360,7 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         )
 
     estados = [fuente["estado"] for fuente in resultado["estado_fuentes"].values()]
-    if aplicar:
+    if notificaciones_habilitadas:
         visibles_despues = ids_oportunidades_visibles()
         nuevos_visibles = visibles_despues - visibles_antes
         nuevos_notificables = filtrar_nuevas_oportunidades_notificables(nuevos_visibles)
@@ -357,6 +379,9 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
         resultado["notificaciones_seguimiento"] = {
             "envio": seguimiento_enviado,
         }
+    elif aplicar:
+        resultado["notificaciones_generales"] = {"omitidas_modo_historico": True}
+        resultado["notificaciones_seguimiento"] = {"omitidas_modo_historico": True}
 
     resultado["resumen_fuentes"] = {
         "total": len(estados),

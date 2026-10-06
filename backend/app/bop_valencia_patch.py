@@ -197,6 +197,9 @@ def _convocatoria_corregida(s: str) -> str | None:
 
 
 def _plazas_corregida(s: str) -> int | None:
+    plazas_libres = _bop._plazas_turno_libre(s)
+    if plazas_libres is not None:
+        return plazas_libres
     n = _bop._sin(s)
     patrones = [
         r"(?:seleccion|seleccio)\s+d['’](una|un)\s+(?:plazas?|places?|placa)",

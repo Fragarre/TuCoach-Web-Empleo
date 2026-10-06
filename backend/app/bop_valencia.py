@@ -129,11 +129,57 @@ def _turno(s: str) -> str | None:
     n = _sin(s)
     if "estabilizacion" in n:
         return "ESTABILIZACION"
-    if "promocion interna" in n:
-        return "PROMOCION_INTERNA"
-    if "turno libre" in n or "oposicion lliure" in n or "oposicion libre" in n:
+    tiene_libre = "turno libre" in n or "oposicion lliure" in n or "oposicion libre" in n
+    tiene_promocion = "promocion interna" in n
+    # Una convocatoria mixta sigue siendo inscribible por turno libre. El
+    # detalle de plazas de cada turno se conserva por separado; este campo
+    # representa el acceso público que se muestra en el catálogo.
+    if tiene_libre:
         return "TURNO_LIBRE"
+    if tiene_promocion:
+        return "PROMOCION_INTERNA"
     return None
+
+
+def _plazas_turno_libre(s: str) -> int | None:
+    """Extrae solo una cuota libre declarada expresamente en la convocatoria."""
+    n = _sin(s)
+    patrones = (
+        r"\b(\d+)\s+(?:plazas?|places?)\s+(?:por|en)\s+(?:el\s+)?turno\s+libre\b",
+        r"\b(\d+)\s+(?:por|en)\s+(?:el\s+)?turno\s+libre\b",
+        r"\bturno\s+libre\s*[:,-]?\s*(\d+)\s+(?:plazas?|places?)\b",
+    )
+    for patron in patrones:
+        m = re.search(patron, n, re.I)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _plazas_promocion_interna(s: str) -> int | None:
+    n = _sin(s)
+    patrones = (
+        r"\b(\d+)\s+(?:plazas?|places?)\s+(?:por|en)\s+promocion\s+interna\b",
+        r"\b(\d+)\s+(?:por|en)\s+promocion\s+interna\b",
+        r"\bpromocion\s+interna\s*[:,-]?\s*(\d+)\s+(?:plazas?|places?)\b",
+    )
+    for patron in patrones:
+        m = re.search(patron, n, re.I)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _desglose_plazas(s: str) -> dict[str, int]:
+    """Devuelve únicamente cantidades explícitas; no deduce cuotas."""
+    libre = _plazas_turno_libre(s)
+    interna = _plazas_promocion_interna(s)
+    resultado: dict[str, int] = {}
+    if libre is not None:
+        resultado["plazas_turno_libre"] = libre
+    if interna is not None:
+        resultado["plazas_promocion_interna"] = interna
+    return resultado
 
 
 def _tipo(s: str) -> str:
@@ -386,6 +432,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     fecha_convocatoria = _fecha_bases(fecha, contenido, es_base)
                     grupo, subgrupo = _grupo_subgrupo(contenido)
                     plazas = _plazas(contenido)
+                    desglose_plazas = _desglose_plazas(contenido)
                     estado_terminal_anuncio = clasificar_evento_terminal(
                         _tipo(contenido),
                         titulo,
@@ -402,7 +449,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             for campo, valor_anterior, valor_nuevo in _cambios_base_existente(existente, nuevos):
                                 cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(valor_anterior) if valor_anterior is not None else None, str(valor_nuevo), f"Actualización de la convocatoria: {campo}"))
                                 stats["cambios"] += 1
-                            cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=%s,ambito_administrativo=%s,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({**(existente[10] or {}), "origen": "BOP_VALENCIA", "url_convocatoria": anuncio["url"], "registro_convocatoria": registro}), proceso_id))
+                            cursor.execute("UPDATE procesos SET denominacion=%s,grupo=COALESCE(%s,grupo),subgrupo=COALESCE(%s,subgrupo),tipo_proceso=%s,turno=COALESCE(%s,turno),plazas=COALESCE(%s,plazas),anio_convocatoria=COALESCE(%s,anio_convocatoria),fecha_convocatoria=COALESCE(%s,fecha_convocatoria),ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,es_oportunidad=%s,ambito_administrativo=%s,datos_json=%s,updated_at=NOW() WHERE id=%s", (nuevos[0], nuevos[1], nuevos[2], nuevos[3], nuevos[4], nuevos[5], nuevos[6], nuevos[7], ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({**(existente[10] or {}), "origen": "BOP_VALENCIA", "url_convocatoria": anuncio["url"], "registro_convocatoria": registro, **desglose_plazas}), proceso_id))
                         else:
                             estado_terminal = clasificar_evento_terminal(
                                 existente[4],
@@ -428,7 +475,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                                 "estado_terminal": estado_terminal_anuncio,
                             })
                             continue
-                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), turno, plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido)})))
+                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), turno, plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido), **desglose_plazas})))
                         proceso_id = cursor.fetchone()[0]
                         stats["procesos"] += 1
                     contenido_hash = hashlib.sha256(texto.encode("utf-8")).hexdigest()
