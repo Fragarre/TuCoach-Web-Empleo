@@ -179,8 +179,8 @@ def ejecutar_periodico(*, aplicar: bool = False, hoy: date | None = None, dias_s
     En APLICADO todas las fuentes usan la misma ventana solapada para tolerar
     caídas puntuales sin depender de que el cron haya ejecutado el día anterior.
     """
-    if dias_solape < 1 or dias_solape > 30:
-        raise ValueError("dias_solape debe estar entre 1 y 30")
+    if dias_solape < 1 or dias_solape > 120:
+        raise ValueError("dias_solape debe estar entre 1 y 120")
 
     fecha_hoy = hoy or date.today()
     desde = fecha_hoy - timedelta(days=dias_solape - 1)
