@@ -46,6 +46,22 @@ class PeriodicHistoricoTest(unittest.TestCase):
 
         self.assertFalse(resultado["notificaciones_habilitadas"])
         self.assertEqual(resultado["notificaciones_generales"], {"omitidas_modo_historico": True})
+        self.assertEqual(
+            set(resultado["duraciones_fuentes_segundos"]),
+            {
+                "bop_valencia_diputacion",
+                "bop_valencia_municipios",
+                "bop_castellon",
+                "alicante_otras_entidades",
+                "bop_alicante",
+                "boe_pendientes_activos",
+                "boe_local",
+                "gva",
+                "gva_bolsas_administrativas",
+                "gva_adc",
+                "gva_cesiones_datos",
+            },
+        )
         visibles.assert_not_called()
         novedades.assert_not_called()
         envio.assert_not_called()

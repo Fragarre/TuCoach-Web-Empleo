@@ -216,6 +216,7 @@ def ejecutar_periodico(
         "notificaciones_habilitadas": notificaciones_habilitadas,
         "fuentes": {},
         "estado_fuentes": {},
+        "duraciones_fuentes_segundos": {},
     }
 
     def registrar(nombre: str, funcion: Callable[[], Any]) -> None:
@@ -231,6 +232,7 @@ def ejecutar_periodico(
         )
         resultado["fuentes"][nombre] = valor
         resultado["estado_fuentes"][nombre] = estado
+        resultado["duraciones_fuentes_segundos"][nombre] = round(duracion, 1)
 
     def ejecutar_bop_diputacion() -> Any:
         if aplicar:
