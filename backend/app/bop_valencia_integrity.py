@@ -11,8 +11,9 @@ _BASE_IMPORTAR_BOP = _bop.importar_bop_valencia
 
 
 def _es_convocatoria_base(titulo: str, texto: str) -> bool:
-    """Distingue bases/convocatoria de publicaciones posteriores del proceso."""
-    n = _bop._sin(titulo + " " + texto)
+    """Distingue la convocatoria base por el acto descrito en el título oficial."""
+    titulo_n = _bop._sin(titulo)
+    contenido_n = _bop._sin(titulo + " " + texto)
 
     posteriores = (
         "designacion de miembros", "designacio de membres",
@@ -31,7 +32,7 @@ def _es_convocatoria_base(titulo: str, texto: str) -> bool:
         "calificaciones", "qualificacions", "resultados", "resultats",
         "nombramiento", "nomenament", "constitucion de bolsa", "constitucio de borsa",
     )
-    if any(x in n for x in posteriores):
+    if any(x in titulo_n for x in posteriores):
         return False
 
     bases = (
@@ -42,7 +43,9 @@ def _es_convocatoria_base(titulo: str, texto: str) -> bool:
         "convocatoria de la oposicion", "convocatoria de l'oposicio",
         "convocatoria del proceso selectivo", "convocatoria del proces selectiu",
     )
-    return any(x in n for x in bases)
+    return any(x in titulo_n for x in bases) or (
+        not titulo_n.strip() and any(x in contenido_n for x in bases)
+    )
 
 
 def _familia_perfil(texto: str) -> str | None:
