@@ -191,10 +191,6 @@ def descubrir_anuncios(client: httpx.Client, historico: bool = False, dias: int 
     return resultados
 
 
-def _convocatoria_corregida(s: str) -> str | None:
-    m = re.search(r"convocatoria\s+([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)", _bop._sin(s), re.I)
-    return re.sub(r"\s+", "", m.group(1)).upper() if m else None
-
 
 def _plazas_corregida(s: str) -> int | None:
     plazas_libres = _bop._plazas_turno_libre(s)
@@ -225,7 +221,6 @@ def _grupo_subgrupo_corregida(s: str) -> tuple[str | None, str | None]:
     return subgrupo[0], subgrupo
 
 
-_bop._convocatoria = _convocatoria_corregida
 _bop._plazas = _plazas_corregida
 _bop._grupo_subgrupo = _grupo_subgrupo_corregida
 
