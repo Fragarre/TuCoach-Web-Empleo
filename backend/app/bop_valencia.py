@@ -65,8 +65,15 @@ def _fecha(s: str | None) -> date | None:
 
 def _convocatoria(s: str) -> str | None:
     n = _sin(s)
-    m = re.search(r"convocatoria\s+([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b", n, re.I)
-    return re.sub(r"\s+", "", m.group(1)).upper() if m else None
+    patrones = (
+        r"convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)(?![a-z0-9])",
+        r"codigo\s+de\s+convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)(?![a-z0-9])",
+    )
+    for patron in patrones:
+        m = re.search(patron, n, re.I)
+        if m:
+            return re.sub(r"\s+", "", m.group(1)).upper()
+    return None
 
 
 def _anio_convocatoria(s: str) -> int | None:
@@ -182,6 +189,15 @@ def _desglose_plazas(s: str) -> dict[str, int]:
     return resultado
 
 
+def _plazas_catalogo(s: str, turno: str | None) -> int | None:
+    """En convocatorias mixtas muestra la cuota realmente accesible por turno libre."""
+    if turno == "TURNO_LIBRE":
+        libres = _plazas_turno_libre(s)
+        if libres is not None:
+            return libres
+    return _plazas(s)
+
+
 def _tipo(s: str) -> str:
     n = _sin(s)
     if any(x in n for x in ("bolsa de trabajo", "bolsa de empleo", "borsa de treball")):
@@ -194,12 +210,10 @@ def _tipo(s: str) -> str:
 
 
 def _es_evento_terminal_titulo(titulo: str) -> bool:
-    """Conserva publicaciones terminales aunque el filtro general las excluya.
-
-    Nombramientos, desistimientos y anulaciones son necesarios para cerrar una
-    convocatoria ya conocida. La persistencia evita crear procesos huérfanos
-    cuando no existe una convocatoria previa con el mismo identificador.
-    """
+    """Conserva publicaciones terminales aunque el filtro general las excluya."""
+    n = _sin(titulo)
+    if any(x in n for x in ("anulacion", "anullacio", "desistimiento", "desistiment")):
+        return True
     return clasificar_evento_terminal(None, titulo) is not None
 
 
@@ -218,17 +232,35 @@ def _es_oportunidad_administrativa(ambito: str, turno: str | None) -> bool:
 
 def _es_convocatoria_base(titulo: str, texto: str) -> bool:
     n = _sin(titulo + " " + texto)
+    # El BOP de Valencia publica mayoritariamente en valenciano. Una actuación
+    # posterior puede repetir literalmente las bases o la convocatoria dentro
+    # del PDF; por eso las señales de seguimiento prevalecen sobre las de base.
     if any(x in n for x in (
-        "designacion de miembros", "designacion del organo", "designacion del tribunal",
-        "composicion del organo", "relacion provisional", "relacion definitiva",
-        "lista provisional", "lista definitiva", "fecha de examen", "calificaciones",
-        "resultado", "nombramiento",
+        "designacion de miembros", "designacio de membres",
+        "designacion del organo", "designacio de l'organ",
+        "designacion del tribunal", "designacio del tribunal",
+        "composicion del organo", "composicio de l'organ",
+        "relacion provisional", "relacio provisional",
+        "relacion definitiva", "relacio definitiva",
+        "lista provisional", "llista provisional",
+        "lista definitiva", "llista definitiva",
+        "fecha de examen", "data d'examen", "data de l'examen",
+        "calificaciones", "qualificacions",
+        "resultado", "resultat",
+        "nombramiento", "nomenament",
+        "constitucion de una bolsa", "constitucio d'una borsa",
+        "constitucion de bolsa", "constitucio de borsa",
     )):
         return False
     return any(x in n for x in (
-        "aprobacion de las bases", "aprobacion de bases", "bases que han de regir",
-        "bases especificas", "convocatoria para la seleccion", "convocatoria del concurso",
-        "convocatoria de la oposicion", "convocatoria del proceso selectivo",
+        "aprobacion de las bases", "aprobacion de bases",
+        "aprovacio de les bases", "aprovacio de bases",
+        "bases que han de regir", "bases que han de regir",
+        "bases especificas", "bases especifiques",
+        "convocatoria para la seleccion", "convocatoria per a la seleccio",
+        "convocatoria del concurso", "convocatoria del concurs",
+        "convocatoria de la oposicion", "convocatoria de l'oposicio",
+        "convocatoria del proceso selectivo", "convocatoria del proces selectiu",
     ))
 
 
@@ -431,7 +463,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     # NULL, dejando el proceso imposible de cruzar con el BOE.
                     fecha_convocatoria = _fecha_bases(fecha, contenido, es_base)
                     grupo, subgrupo = _grupo_subgrupo(contenido)
-                    plazas = _plazas(contenido)
+                    plazas = _plazas_catalogo(contenido, turno)
                     desglose_plazas = _desglose_plazas(contenido)
                     estado_terminal_anuncio = clasificar_evento_terminal(
                         _tipo(contenido),
@@ -463,12 +495,11 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             else:
                                 cursor.execute("UPDATE procesos SET ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,updated_at=NOW() WHERE id=%s", (ultima, fuente_id, proceso_id))
                     else:
-                        # Un seguimiento terminal sin convocatoria previa no debe
-                        # convertirse por sí solo en una oportunidad EN_CURSO.
-                        # Si las bases aparecen antes en el histórico, compartirán
-                        # identificador y se habrá entrado por la rama existente.
-                        if estado_terminal_anuncio and not es_base:
-                            stats.setdefault("terminales_sin_convocatoria", []).append({
+                        # Solo una convocatoria/base puede crear un proceso. Las
+                        # publicaciones posteriores son seguimiento y nunca deben
+                        # convertirse por sí solas en oportunidades EN_CURSO.
+                        if not es_base:
+                            stats.setdefault("seguimientos_sin_convocatoria", []).append({
                                 "registro": registro,
                                 "titulo": titulo,
                                 "identificador_estable": estable,
