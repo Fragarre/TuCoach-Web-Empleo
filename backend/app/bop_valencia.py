@@ -65,7 +65,7 @@ def _fecha(s: str | None) -> date | None:
 
 def _convocatoria(s: str) -> str | None:
     n = _sin(s)
-    m = re.search(r"convocatoria\s+([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b", n, re.I)
+    m = re.search(r"convocatoria\s*(?::|codi(?:go)?\s+de\s+convocatoria\s*:?)?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b", n, re.I)
     return re.sub(r"\s+", "", m.group(1)).upper() if m else None
 
 
@@ -180,6 +180,15 @@ def _desglose_plazas(s: str) -> dict[str, int]:
     if interna is not None:
         resultado["plazas_promocion_interna"] = interna
     return resultado
+
+
+def _plazas_catalogo(s: str, turno: str | None) -> int | None:
+    """En convocatorias mixtas muestra la cuota realmente accesible por turno libre."""
+    if turno == "TURNO_LIBRE":
+        libres = _plazas_turno_libre(s)
+        if libres is not None:
+            return libres
+    return _plazas(s)
 
 
 def _tipo(s: str) -> str:
@@ -431,7 +440,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     # NULL, dejando el proceso imposible de cruzar con el BOE.
                     fecha_convocatoria = _fecha_bases(fecha, contenido, es_base)
                     grupo, subgrupo = _grupo_subgrupo(contenido)
-                    plazas = _plazas(contenido)
+                    plazas = _plazas_catalogo(contenido, turno)
                     desglose_plazas = _desglose_plazas(contenido)
                     estado_terminal_anuncio = clasificar_evento_terminal(
                         _tipo(contenido),
@@ -463,12 +472,11 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                             else:
                                 cursor.execute("UPDATE procesos SET ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),fuente_principal_id=%s,updated_at=NOW() WHERE id=%s", (ultima, fuente_id, proceso_id))
                     else:
-                        # Un seguimiento terminal sin convocatoria previa no debe
-                        # convertirse por sí solo en una oportunidad EN_CURSO.
-                        # Si las bases aparecen antes en el histórico, compartirán
-                        # identificador y se habrá entrado por la rama existente.
-                        if estado_terminal_anuncio and not es_base:
-                            stats.setdefault("terminales_sin_convocatoria", []).append({
+                        # Solo una convocatoria/base puede crear un proceso. Las
+                        # publicaciones posteriores son seguimiento y nunca deben
+                        # convertirse por sí solas en oportunidades EN_CURSO.
+                        if not es_base:
+                            stats.setdefault("seguimientos_sin_convocatoria", []).append({
                                 "registro": registro,
                                 "titulo": titulo,
                                 "identificador_estable": estable,
