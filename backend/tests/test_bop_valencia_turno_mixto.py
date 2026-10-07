@@ -8,6 +8,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app import bop_valencia as _MODULE
+from app import bop_valencia_integrity as _INTEGRITY
 
 
 TEXTO_MIXTO = (
@@ -89,6 +90,26 @@ class BopValenciaTurnoMixtoTest(unittest.TestCase):
         for titulo, texto in casos:
             with self.subTest(titulo=titulo):
                 self.assertTrue(_MODULE._es_convocatoria_base(titulo, texto))
+
+    def test_integridad_no_invalida_bases_por_contenido_del_pdf(self):
+        titulo = (
+            "Anunci de la Diputació Provincial de València sobre l'aprovació de les bases "
+            "de la convocatòria de l'oposició lliure per a la selecció de 66 places "
+            "d'administratiu/va. Convocatòria 03/26."
+        )
+        texto = (
+            "La relació provisional de persones admeses es publicarà posteriorment. "
+            "La data d'examen i els resultats es publicaran segons les bases."
+        )
+        self.assertTrue(_INTEGRITY._es_convocatoria_base(titulo, texto))
+
+    def test_integridad_mantiene_seguimiento_como_no_base(self):
+        titulo = (
+            "Anunci de la Diputació Provincial de València sobre l'aprovació de la relació "
+            "definitiva i data d'examen de l'oposició lliure. Convocatòria 04/26."
+        )
+        texto = "El document cita les bases de la convocatòria i el procés selectiu."
+        self.assertFalse(_INTEGRITY._es_convocatoria_base(titulo, texto))
 
     def test_solo_promocion_interna_sigue_excluida(self):
         turno = _MODULE._turno("Convocatoria de 6 plazas por promoción interna.")
