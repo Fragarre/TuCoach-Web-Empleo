@@ -232,17 +232,35 @@ def _es_oportunidad_administrativa(ambito: str, turno: str | None) -> bool:
 
 def _es_convocatoria_base(titulo: str, texto: str) -> bool:
     n = _sin(titulo + " " + texto)
+    # El BOP de Valencia publica mayoritariamente en valenciano. Una actuación
+    # posterior puede repetir literalmente las bases o la convocatoria dentro
+    # del PDF; por eso las señales de seguimiento prevalecen sobre las de base.
     if any(x in n for x in (
-        "designacion de miembros", "designacion del organo", "designacion del tribunal",
-        "composicion del organo", "relacion provisional", "relacion definitiva",
-        "lista provisional", "lista definitiva", "fecha de examen", "calificaciones",
-        "resultado", "nombramiento",
+        "designacion de miembros", "designacio de membres",
+        "designacion del organo", "designacio de l'organ",
+        "designacion del tribunal", "designacio del tribunal",
+        "composicion del organo", "composicio de l'organ",
+        "relacion provisional", "relacio provisional",
+        "relacion definitiva", "relacio definitiva",
+        "lista provisional", "llista provisional",
+        "lista definitiva", "llista definitiva",
+        "fecha de examen", "data d'examen", "data de l'examen",
+        "calificaciones", "qualificacions",
+        "resultado", "resultat",
+        "nombramiento", "nomenament",
+        "constitucion de una bolsa", "constitucio d'una borsa",
+        "constitucion de bolsa", "constitucio de borsa",
     )):
         return False
     return any(x in n for x in (
-        "aprobacion de las bases", "aprobacion de bases", "bases que han de regir",
-        "bases especificas", "convocatoria para la seleccion", "convocatoria del concurso",
-        "convocatoria de la oposicion", "convocatoria del proceso selectivo",
+        "aprobacion de las bases", "aprobacion de bases",
+        "aprovacio de les bases", "aprovacio de bases",
+        "bases que han de regir", "bases que han de regir",
+        "bases especificas", "bases especifiques",
+        "convocatoria para la seleccion", "convocatoria per a la seleccio",
+        "convocatoria del concurso", "convocatoria del concurs",
+        "convocatoria de la oposicion", "convocatoria de l'oposicio",
+        "convocatoria del proceso selectivo", "convocatoria del proces selectiu",
     ))
 
 
