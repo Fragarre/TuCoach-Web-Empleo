@@ -46,6 +46,8 @@ def incluido_empleo_bop(titulo: str) -> bool:
     se excluyen de forma expresa.
     """
     n = _bop._sin(titulo)
+    if _bop._es_evento_terminal_titulo(titulo):
+        return True
     if any(_bop._sin(x) in n for x in _TERMINOS_NO_EMPLEO):
         return False
     return any(_bop._sin(x) in n for x in _TERMINOS_EMPLEO)
