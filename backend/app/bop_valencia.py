@@ -66,8 +66,8 @@ def _fecha(s: str | None) -> date | None:
 def _convocatoria(s: str) -> str | None:
     n = _sin(s)
     patrones = (
-        r"convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b",
-        r"codigo\s+de\s+convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b",
+        r"convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)(?![a-z0-9])",
+        r"codigo\s+de\s+convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)(?![a-z0-9])",
     )
     for patron in patrones:
         m = re.search(patron, n, re.I)
