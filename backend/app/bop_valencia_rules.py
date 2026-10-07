@@ -17,7 +17,9 @@ _TERMINOS_NO_EMPLEO = (
     "concurso de meritos", "concurso de méritos",
     "lliure designacio", "lliure designació", "libre designacion", "libre designación",
     "nomenament, per concurs de merits", "nomenament, per concurs de mèrits",
+    "nomenament per concurs de merits", "nomenament per concurs de mèrits",
     "nombramiento, por concurso de meritos", "nombramiento, por concurso de méritos",
+    "nombramiento por concurso de meritos", "nombramiento por concurso de méritos",
 )
 
 _TERMINOS_EMPLEO = (
