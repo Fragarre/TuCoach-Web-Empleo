@@ -116,6 +116,7 @@ class BopValenciaTurnoMixtoTest(unittest.TestCase):
         casos = (
             "Aprovació de les bases del concurs de mèrits per a la provisió del lloc de cap de secció. Convocatòria 13/26.",
             "Nomenament per concurs de mèrits del lloc de cap de taller d'impremta. Convocatòria 03/26.",
+            "Anunci de la Diputació Provincial de València sobre el nomenament per concurs de mèrits del lloc de treball de cap de taller d'impremta, incardinat en el centre d'Impremta i Butlletí Oficial de la Província. Convocatòria 03/26.",
             "Nombramiento por concurso de méritos para la provisión del puesto de Secretaría. Convocatoria 90/25.",
         )
         for titulo in casos:
