@@ -13,6 +13,8 @@ _TERMINOS_NO_EMPLEO = (
     "concurso de meritos para cubrir el puesto", "concurso de méritos para cubrir el puesto",
     "concurs de merits per a la provisio", "concurs de mèrits per a la provisió",
     "concurso de meritos para la provision", "concurso de méritos para la provisión",
+    "concurs de merits", "concurs de mèrits",
+    "concurso de meritos", "concurso de méritos",
     "lliure designacio", "lliure designació", "libre designacion", "libre designación",
     "nomenament, per concurs de merits", "nomenament, per concurs de mèrits",
     "nombramiento, por concurso de meritos", "nombramiento, por concurso de méritos",
@@ -46,10 +48,13 @@ def incluido_empleo_bop(titulo: str) -> bool:
     se excluyen de forma expresa.
     """
     n = _bop._sin(titulo)
-    if _bop._es_evento_terminal_titulo(titulo):
-        return True
+    # Una provisión de puesto o concurso de méritos no pertenece al catálogo
+    # de oposiciones aunque su anuncio sea terminal (por ejemplo, un nombramiento).
+    # Se excluye antes de conservar los hitos terminales de procesos selectivos.
     if any(_bop._sin(x) in n for x in _TERMINOS_NO_EMPLEO):
         return False
+    if _bop._es_evento_terminal_titulo(titulo):
+        return True
     return any(_bop._sin(x) in n for x in _TERMINOS_EMPLEO)
 
 
