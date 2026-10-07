@@ -1,4 +1,4 @@
-﻿-- Relaciones documentales entre ADC y bolsas GVA.
+-- Relaciones documentales entre ADC y bolsas GVA.
 -- Migración aditiva e idempotente.
 
 CREATE TABLE IF NOT EXISTS adc_bolsas_relacionadas (
