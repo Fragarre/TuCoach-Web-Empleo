@@ -231,11 +231,12 @@ def _es_oportunidad_administrativa(ambito: str, turno: str | None) -> bool:
 
 
 def _es_convocatoria_base(titulo: str, texto: str) -> bool:
-    n = _sin(titulo + " " + texto)
-    # El BOP de Valencia publica mayoritariamente en valenciano. Una actuación
-    # posterior puede repetir literalmente las bases o la convocatoria dentro
-    # del PDF; por eso las señales de seguimiento prevalecen sobre las de base.
-    if any(x in n for x in (
+    titulo_n = _sin(titulo)
+    contenido_n = _sin(titulo + " " + texto)
+    # El título oficial identifica el acto publicado. El cuerpo de unas bases
+    # describe fases posteriores (admitidos, examen, resultado...) y no debe
+    # convertir por ello la propia convocatoria en una publicación de seguimiento.
+    seguimiento = (
         "designacion de miembros", "designacio de membres",
         "designacion del organo", "designacio de l'organ",
         "designacion del tribunal", "designacio del tribunal",
@@ -250,18 +251,22 @@ def _es_convocatoria_base(titulo: str, texto: str) -> bool:
         "nombramiento", "nomenament",
         "constitucion de una bolsa", "constitucio d'una borsa",
         "constitucion de bolsa", "constitucio de borsa",
-    )):
+    )
+    if any(x in titulo_n for x in seguimiento):
         return False
-    return any(x in n for x in (
+    base = (
         "aprobacion de las bases", "aprobacion de bases",
         "aprovacio de les bases", "aprovacio de bases",
-        "bases que han de regir", "bases que han de regir",
+        "bases que han de regir",
         "bases especificas", "bases especifiques",
         "convocatoria para la seleccion", "convocatoria per a la seleccio",
         "convocatoria del concurso", "convocatoria del concurs",
         "convocatoria de la oposicion", "convocatoria de l'oposicio",
         "convocatoria del proceso selectivo", "convocatoria del proces selectiu",
-    ))
+    )
+    return any(x in titulo_n for x in base) or (
+        not titulo_n.strip() and any(x in contenido_n for x in base)
+    )
 
 
 def _tipo_publicacion(titulo: str, texto: str) -> str:

@@ -75,6 +75,21 @@ class BopValenciaTurnoMixtoTest(unittest.TestCase):
             with self.subTest(titulo=titulo):
                 self.assertFalse(_MODULE._es_convocatoria_base(titulo, texto))
 
+    def test_bases_no_se_invalidan_por_fases_descritas_en_el_pdf(self):
+        casos = (
+            (
+                "Aprovació de les bases de la convocatòria de l'oposició lliure per a la selecció d'una plaça d'enginyeria industrial. Convocatòria 31/24.",
+                "La relació provisional de persones admeses es publicarà posteriorment. Data d'examen i resultat segons les bases.",
+            ),
+            (
+                "Aprovació de les bases de la convocatòria de l'oposició lliure per a la selecció de 66 places d'administratiu/va. Convocatòria 03/26.",
+                "El tribunal publicarà la relació definitiva i les qualificacions del procés.",
+            ),
+        )
+        for titulo, texto in casos:
+            with self.subTest(titulo=titulo):
+                self.assertTrue(_MODULE._es_convocatoria_base(titulo, texto))
+
     def test_solo_promocion_interna_sigue_excluida(self):
         turno = _MODULE._turno("Convocatoria de 6 plazas por promoción interna.")
         self.assertEqual(turno, "PROMOCION_INTERNA")
