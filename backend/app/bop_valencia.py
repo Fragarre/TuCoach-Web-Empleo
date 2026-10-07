@@ -65,8 +65,15 @@ def _fecha(s: str | None) -> date | None:
 
 def _convocatoria(s: str) -> str | None:
     n = _sin(s)
-    m = re.search(r"convocatoria\s*(?::|codi(?:go)?\s+de\s+convocatoria\s*:?)?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b", n, re.I)
-    return re.sub(r"\s+", "", m.group(1)).upper() if m else None
+    patrones = (
+        r"convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b",
+        r"codigo\s+de\s+convocatoria\s*:?\s*([a-z]?\s*\d{1,3}/\d{2,4}[a-z]?)\b",
+    )
+    for patron in patrones:
+        m = re.search(patron, n, re.I)
+        if m:
+            return re.sub(r"\s+", "", m.group(1)).upper()
+    return None
 
 
 def _anio_convocatoria(s: str) -> int | None:
@@ -203,12 +210,10 @@ def _tipo(s: str) -> str:
 
 
 def _es_evento_terminal_titulo(titulo: str) -> bool:
-    """Conserva publicaciones terminales aunque el filtro general las excluya.
-
-    Nombramientos, desistimientos y anulaciones son necesarios para cerrar una
-    convocatoria ya conocida. La persistencia evita crear procesos huérfanos
-    cuando no existe una convocatoria previa con el mismo identificador.
-    """
+    """Conserva publicaciones terminales aunque el filtro general las excluya."""
+    n = _sin(titulo)
+    if any(x in n for x in ("anulacion", "anullacio", "desistimiento", "desistiment")):
+        return True
     return clasificar_evento_terminal(None, titulo) is not None
 
 
