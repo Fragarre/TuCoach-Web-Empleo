@@ -56,6 +56,25 @@ class BopValenciaTurnoMixtoTest(unittest.TestCase):
             )
         )
 
+    def test_convocatoria_base_en_valenciano(self):
+        self.assertTrue(
+            _MODULE._es_convocatoria_base(
+                "Aprovació de les bases de la convocatòria de l'oposició lliure. Convocatòria 04/25.",
+                "",
+            )
+        )
+
+    def test_seguimientos_en_valenciano_no_son_base(self):
+        casos = (
+            ("Aprovació de la relació provisional de persones admeses i excloses. Convocatòria 09/25.", ""),
+            ("Designació de membres de l'òrgan tècnic de selecció. Convocatòria 06/25.", ""),
+            ("Nomenament com a personal funcionari de carrera. Convocatòria 36/20.", ""),
+            ("Constitució d'una borsa de treball derivada de l'oposició lliure. Convocatòria 49/23.", ""),
+        )
+        for titulo, texto in casos:
+            with self.subTest(titulo=titulo):
+                self.assertFalse(_MODULE._es_convocatoria_base(titulo, texto))
+
     def test_solo_promocion_interna_sigue_excluida(self):
         turno = _MODULE._turno("Convocatoria de 6 plazas por promoción interna.")
         self.assertEqual(turno, "PROMOCION_INTERNA")
