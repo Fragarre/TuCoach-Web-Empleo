@@ -10,6 +10,8 @@ from app.gva_adc import (
     _es_promocion_interna,
     _estado_proceso_adc,
     _extraer_bolsas_texto_oficial,
+    _numero_adc,
+    _relacion_bolsas_efectiva,
 )
 
 
@@ -56,7 +58,60 @@ class EstadoProcesoAdcTest(unittest.TestCase):
             _extraer_bolsas_texto_oficial(texto),
             ["241", "332", "435", "677", "679", "804", "890", "891", "913", "914"],
         )
+    def test_extrae_listado_estructurado_de_bolsas_adc(self) -> None:
+        texto = """
+        Únicamente podrán participar las personas integrantes de las siguientes bolsas que
+        figuren en algún ámbito como disponibles:
 
+        804-B. C1-01, Administrativo. Modalidad Estabilización.
+        679-B. Cuerpo C1-01. Administrativo.
+        435-B. Cuerpo C1-01 administrativos.
+        332-B. Cuerpo C1-01, administrativos PI.
+        241-B. Cuerpo Administrativo C1-01.
+        913-L. Cuerpo C1-01. Administrativos.
+        914-L. Cuerpo C1-01. Administrativos.
+        891-L. Cuerpo C1-01. Administrativos.
+        890-L. Cuerpo C1-01. Administrativos.
+        677-L. Cuerpo C1-01 administrativos.
+
+        El plazo de presentación de solicitudes será el establecido.
+        """
+        self.assertEqual(
+            _extraer_bolsas_texto_oficial(texto),
+            [
+                "241-B",
+                "332-B",
+                "435-B",
+                "677-L",
+                "679-B",
+                "804-B",
+                "890-L",
+                "891-L",
+                "913-L",
+                "914-L",
+            ],
+        )
+
+    def test_numero_adc_formato_estandar(self) -> None:
+        self.assertEqual(_numero_adc("ADC 172/26 A1-01"), "172/26")
+
+    def test_numero_adc_formato_edu_pas(self) -> None:
+        self.assertEqual(
+            _numero_adc("ADC-EDU-PAS 1/26 C1-01 Administrativo/a"),
+            "1/26",
+        )
+
+    def test_conserva_bolsas_previas_si_etapa_actual_no_aporta_bolsas(self) -> None:
+        bolsas, evidencia = _relacion_bolsas_efectiva(
+            [],
+            None,
+            {
+                "bolsas_relacionadas": ["241-B", "804-B", "913-L"],
+                "evidencia_relacion": "PDF_OFICIAL",
+            },
+        )
+        self.assertEqual(bolsas, ["241-B", "804-B", "913-L"])
+        self.assertEqual(evidencia, "PDF_OFICIAL")
 
 if __name__ == "__main__":
     unittest.main()

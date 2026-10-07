@@ -143,7 +143,7 @@ def _plazas(texto: str) -> int | None:
 
 
 def _numero_adc(denominacion: str) -> str | None:
-    m = re.search(r"\bADC\s+([^\s.]+)", denominacion or "", re.I)
+    m = re.search(r"\bADC(?:-[A-Z]+)*\s+([^\s.]+)", denominacion or "", re.I)
     return m.group(1) if m else None
 
 
@@ -183,7 +183,33 @@ def _extraer_bolsas_texto_oficial(texto: str) -> list[str]:
         for ref in patron_ref.findall(m.group(1)):
             halladas.add(ref.upper().replace(" ", ""))
 
+    # Listado estructurado tras "següents borses" / "siguientes bolsas".
+    patron_bloque = re.compile(
+        r"(?:seguents\s+borses|siguientes\s+bolsas).*?:\s*(.*?)"
+        r"(?=\n\s*(?:el\s+termini|el\s+plazo)\b)",
+        re.I | re.S,
+    )
+    for bloque in patron_bloque.findall(normalizado):
+        for ref in re.findall(r"(?m)^\s*(\d{2,4}-[bl])\.", bloque, re.I):
+            halladas.add(ref.upper())
+
     return sorted(halladas)
+
+
+def _relacion_bolsas_efectiva(
+    bolsas_actuales: list[str],
+    evidencia_actual: str | None,
+    datos_previos: dict[str, Any],
+) -> tuple[list[str], str | None]:
+    """Conserva una relación documental previa si la etapa actual no aporta otra."""
+    if bolsas_actuales:
+        return bolsas_actuales, evidencia_actual
+
+    bolsas_previas = datos_previos.get("bolsas_relacionadas") or []
+    if bolsas_previas:
+        return list(bolsas_previas), datos_previos.get("evidencia_relacion")
+
+    return [], evidencia_actual
 
 
 def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
@@ -465,6 +491,16 @@ def planificar_adc_gva() -> dict[str, Any]:
         baseline_adc = False
         if existente:
             datos_previos = existente.get("datos_json") or {}
+
+            bolsas_efectivas, evidencia_efectiva = _relacion_bolsas_efectiva(
+                adc["bolsas_relacionadas"],
+                adc["evidencia_relacion"],
+                datos_previos,
+            )
+            adc = dict(adc)
+            adc["bolsas_relacionadas"] = bolsas_efectivas
+            adc["evidencia_relacion"] = evidencia_efectiva
+
             baseline_adc = datos_previos.get("categoria_gva") != "ADC"
             huella_previa = datos_previos.get("huella_novedad_adc")
             huella_actual = _huella_novedad_adc(adc)
@@ -483,6 +519,7 @@ def planificar_adc_gva() -> dict[str, Any]:
                 huella_previa != huella_actual,
             ))
             accion = "ACTUALIZAR" if campos_cambian else "SIN_CAMBIOS"
+
         acciones.append({
             "accion": accion,
             "baseline_adc": baseline_adc,
