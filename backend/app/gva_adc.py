@@ -811,6 +811,19 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                 "huella_novedad_adc": _huella_novedad_adc(adc),
             }
             if accion["accion"] == "SIN_CAMBIOS":
+                adc_proceso_id = int(accion["proceso_id"])
+                relaciones = _resolver_bolsas_relacionadas(
+                    cursor, adc["bolsas_relacionadas"]
+                )
+                relaciones_ambiguas.update(relaciones["ambiguas"])
+                relaciones_no_resueltas.update(relaciones["no_resueltas"])
+                _persistir_relaciones_adc_bolsas(
+                    cursor,
+                    adc_proceso_id=adc_proceso_id,
+                    referencias=adc["bolsas_relacionadas"],
+                    relaciones=relaciones,
+                    evidencia=adc["evidencia_relacion"],
+                )
                 continue
             if accion["accion"] == "NUEVA":
                 cursor.execute(
