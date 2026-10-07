@@ -620,6 +620,43 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
     }
 
 
+def _persistir_relaciones_adc_bolsas(
+    cursor,
+    *,
+    adc_proceso_id: int,
+    referencias: list[str],
+    relaciones: dict[str, Any],
+    evidencia: str | None,
+) -> None:
+    """Persiste todas las relaciones documentales ADC-bolsa sin eliminar las previas."""
+    resueltas = relaciones.get("resueltas", {})
+    for referencia in referencias:
+        ref = _normalizar_ref_bolsa(referencia)
+        if not ref:
+            continue
+        cursor.execute(
+            """
+            INSERT INTO adc_bolsas_relacionadas (
+                adc_proceso_id, referencia_bolsa, bolsa_proceso_id, evidencia
+            ) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (adc_proceso_id, referencia_bolsa) DO UPDATE
+            SET bolsa_proceso_id = COALESCE(
+                    EXCLUDED.bolsa_proceso_id,
+                    adc_bolsas_relacionadas.bolsa_proceso_id
+                ),
+                evidencia = COALESCE(
+                    EXCLUDED.evidencia,
+                    adc_bolsas_relacionadas.evidencia
+                )
+            WHERE adc_bolsas_relacionadas.bolsa_proceso_id IS DISTINCT FROM
+                  COALESCE(EXCLUDED.bolsa_proceso_id, adc_bolsas_relacionadas.bolsa_proceso_id)
+               OR adc_bolsas_relacionadas.evidencia IS DISTINCT FROM
+                  COALESCE(EXCLUDED.evidencia, adc_bolsas_relacionadas.evidencia)
+            """,
+            (adc_proceso_id, ref, resueltas.get(ref), evidencia),
+        )
+
+
 def _huella_novedad_adc(adc: dict[str, Any]) -> str:
     """Identifica de forma estable la etapa/documento oficial actualmente visible."""
     fechas = adc.get("fechas_publicacion") or []
@@ -828,6 +865,21 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
                 )
                 actualizados += cursor.rowcount
 
+            cursor.execute(
+                """
+                SELECT id
+                FROM procesos
+                WHERE identificador_estable=%s
+                """,
+                (adc["identificador_estable"],),
+            )
+            proceso_adc = cursor.fetchone()
+            if proceso_adc is None:
+                raise RuntimeError(
+                    f"No se pudo resolver el proceso ADC {adc['identificador_estable']}"
+                )
+            adc_proceso_id = int(proceso_adc["id"])
+
             # Una etapa posterior de un ADC ya normalizado es una novedad del
             # propio proceso. El baseline (incluido legacy) permanece silencioso.
             if accion["accion"] == "ACTUALIZAR" and not accion.get("baseline_adc", False):
@@ -843,6 +895,13 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
             relaciones = _resolver_bolsas_relacionadas(cursor, adc["bolsas_relacionadas"])
             relaciones_ambiguas.update(relaciones["ambiguas"])
             relaciones_no_resueltas.update(relaciones["no_resueltas"])
+            _persistir_relaciones_adc_bolsas(
+                cursor,
+                adc_proceso_id=adc_proceso_id,
+                referencias=adc["bolsas_relacionadas"],
+                relaciones=relaciones,
+                evidencia=adc["evidencia_relacion"],
+            )
 
             # Baseline histórico silencioso: una ADC que entra por primera vez y
             # ya no es accionable se registra, pero no genera novedades en bolsas.

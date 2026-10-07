@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import MagicMock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -11,6 +12,7 @@ from app.gva_adc import (
     _estado_proceso_adc,
     _extraer_bolsas_texto_oficial,
     _numero_adc,
+    _persistir_relaciones_adc_bolsas,
     _relacion_bolsas_efectiva,
 )
 
@@ -112,6 +114,46 @@ class EstadoProcesoAdcTest(unittest.TestCase):
         )
         self.assertEqual(bolsas, ["241-B", "804-B", "913-L"])
         self.assertEqual(evidencia, "PDF_OFICIAL")
+
+    def test_persistencia_relacion_resuelta_guarda_proceso_bolsa(self) -> None:
+        cursor = MagicMock()
+
+        _persistir_relaciones_adc_bolsas(
+            cursor,
+            adc_proceso_id=100,
+            referencias=["804-B"],
+            relaciones={
+                "resueltas": {"804-B": 200},
+                "ambiguas": {},
+                "no_resueltas": [],
+            },
+            evidencia="PDF_OFICIAL",
+        )
+
+        self.assertEqual(cursor.execute.call_count, 1)
+        parametros = cursor.execute.call_args.args[1]
+        self.assertEqual(parametros, (100, "804-B", 200, "PDF_OFICIAL"))
+        self.assertIn("ON CONFLICT", cursor.execute.call_args.args[0])
+
+    def test_persistencia_relacion_no_resuelta_conserva_referencia(self) -> None:
+        cursor = MagicMock()
+
+        _persistir_relaciones_adc_bolsas(
+            cursor,
+            adc_proceso_id=100,
+            referencias=["241-B"],
+            relaciones={
+                "resueltas": {},
+                "ambiguas": {},
+                "no_resueltas": ["241-B"],
+            },
+            evidencia="PDF_OFICIAL",
+        )
+
+        self.assertEqual(cursor.execute.call_count, 1)
+        parametros = cursor.execute.call_args.args[1]
+        self.assertEqual(parametros, (100, "241-B", None, "PDF_OFICIAL"))
+
 
 if __name__ == "__main__":
     unittest.main()
