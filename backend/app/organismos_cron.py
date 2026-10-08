@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
+import time
 from datetime import date, timedelta
 from typing import Any, Callable
 
@@ -35,6 +37,25 @@ def _rango(*, hoy: date, dias: int) -> tuple[date, date]:
     return hoy - timedelta(days=dias - 1), hoy
 
 
+def _feedback(mensaje: str) -> None:
+    """Escribe progreso inmediato en stdout para que el proceso sea visible en Render."""
+    print(f"[CRON] {time.strftime('%H:%M:%S')} | {mensaje}", flush=True)
+
+
+def _ejecutar_componente(nombre: str, funcion: Callable[[], Any]) -> Any:
+    inicio = time.monotonic()
+    _feedback(f"INICIO {nombre}")
+    try:
+        resultado = funcion()
+    except Exception as exc:
+        transcurrido = time.monotonic() - inicio
+        _feedback(f"ERROR {nombre} tras {transcurrido:.1f}s: {type(exc).__name__}: {exc}")
+        raise
+    transcurrido = time.monotonic() - inicio
+    _feedback(f"FIN {nombre} ({transcurrido:.1f}s)")
+    return resultado
+
+
 def ejecutar_gva(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
     desde, hasta = _rango(hoy=hoy, dias=dias)
     resultado: dict[str, Any] = {
@@ -43,28 +64,35 @@ def ejecutar_gva(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
         "hasta": hasta.isoformat(),
         "componentes": {},
     }
-    resultado["componentes"]["oportunidades"] = importar_gva_estatal(
-        desde=desde,
-        hasta=hasta,
-        aplicar=aplicar,
+    _feedback(f"GVA iniciada | periodo {desde.isoformat()} → {hasta.isoformat()} | aplicar={aplicar}")
+    resultado["componentes"]["oportunidades"] = _ejecutar_componente(
+        "GVA oportunidades",
+        lambda: importar_gva_estatal(desde=desde, hasta=hasta, aplicar=aplicar),
     )
-    resultado["componentes"]["bolsas"] = persistir_bolsas_gva_complementarias(
-        aplicar=aplicar,
+    resultado["componentes"]["bolsas"] = _ejecutar_componente(
+        "GVA bolsas",
+        lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar),
     )
-    resultado["componentes"]["adc"] = persistir_adc_gva(
-        aplicar=aplicar,
+    resultado["componentes"]["adc"] = _ejecutar_componente(
+        "GVA ADC",
+        lambda: persistir_adc_gva(aplicar=aplicar),
     )
-    resultado["componentes"]["cesiones"] = persistir_cesiones_gva(
-        aplicar=aplicar,
+    resultado["componentes"]["cesiones"] = _ejecutar_componente(
+        "GVA cesiones",
+        lambda: persistir_cesiones_gva(aplicar=aplicar),
     )
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
         from .clasificacion_auditoria import revisar_clasificacion_puestos
 
-        resultado["componentes"]["clasificacion_puestos"] = revisar_clasificacion_puestos(
-            aplicar=True,
-            limite=15,
-            ordenar_por_reciente=True,
+        resultado["componentes"]["clasificacion_puestos"] = _ejecutar_componente(
+            "GVA clasificación de puestos",
+            lambda: revisar_clasificacion_puestos(
+                aplicar=True,
+                limite=15,
+                ordenar_por_reciente=True,
+            ),
         )
+    _feedback("GVA finalizada correctamente")
     return resultado
 
 
@@ -187,14 +215,21 @@ def _main() -> int:
     parser.add_argument("--aplicar", action="store_true")
     args = parser.parse_args()
 
-    resultado = ejecutar_organismo(
-        args.organismo,
-        dias=args.dias,
-        aplicar=args.aplicar,
-    )
+    _feedback(f"INICIO organismo={args.organismo} | dias={args.dias} | aplicar={args.aplicar}")
+    inicio = time.monotonic()
+    try:
+        resultado = ejecutar_organismo(
+            args.organismo,
+            dias=args.dias,
+            aplicar=args.aplicar,
+        )
+    except Exception as exc:
+        _feedback(f"PROCESO ABORTADO tras {time.monotonic() - inicio:.1f}s: {type(exc).__name__}: {exc}")
+        raise
+    _feedback(f"PROCESO TERMINADO correctamente en {time.monotonic() - inicio:.1f}s")
     import json
 
-    print(json.dumps(resultado, ensure_ascii=False, default=str, indent=2))
+    print(json.dumps(resultado, ensure_ascii=False, default=str, indent=2), flush=True)
     return 0
 
 
