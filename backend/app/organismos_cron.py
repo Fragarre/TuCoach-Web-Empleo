@@ -103,9 +103,11 @@ def ejecutar_ayuntamientos_valencia(*, hoy: date, dias: int, aplicar: bool) -> d
 def ejecutar_diputacion_alicante(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
     return {
         "organismo": "diputacion_alicante",
-        "resultado": bootstrap_otras_entidades_alicante(
-            max_items=200,
+        "resultado": importar_bop_alicante(
+            dias_solape=dias,
+            hasta=hoy,
             aplicar=aplicar,
+            tipo_organismo="DIPUTACION",
         ),
     }
 
@@ -117,6 +119,7 @@ def ejecutar_ayuntamientos_alicante(*, hoy: date, dias: int, aplicar: bool) -> d
             dias_solape=dias,
             hasta=hoy,
             aplicar=aplicar,
+            tipo_organismo="AYUNTAMIENTO",
         ),
     }
 
