@@ -15,7 +15,8 @@ _SPEC = importlib.util.spec_from_file_location("app.gva_estatal_source", _MODULE
 assert _SPEC and _SPEC.loader
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
-_es_admin = _MODULE._es_admin\n_obtener_listado = _MODULE._obtener_listado\n_parse_tarjetas = _MODULE._parse_tarjetas
+_es_admin = _MODULE._es_admin
+_parse_tarjetas = _MODULE._parse_tarjetas
 
 
 class AmbitoGvaEstatalTest(unittest.TestCase):
@@ -35,6 +36,22 @@ class AmbitoGvaEstatalTest(unittest.TestCase):
         incluido, codigos = _es_admin("Auxiliar administrativo/a", "Ingreso libre")
         self.assertTrue(incluido)
         self.assertEqual(codigos, [])
+
+
+
+    def test_parser_acepta_detalle_actual(self) -> None:
+        html = """
+        <div class="resultado">
+          <a href="/empleopublico/resultadosEmpleo/detalle-empleo?selectorServicio=bolsa_empleo&selectorget=221774">
+            SUPERIOR DE ADMINISTRACIÓN
+          </a>
+          <div>Ubicación: AUTONÓMICO - COMUNITAT VALENCIANA</div>
+          <div>Órgano convocante: Conselleria de Economía, Hacienda y Administración Pública</div>
+        </div>
+        """
+        resultado = _parse_tarjetas(html)
+        self.assertEqual(len(resultado), 1)
+        self.assertEqual(resultado[0]["referencia"], 221774)
 
 
 if __name__ == "__main__":
