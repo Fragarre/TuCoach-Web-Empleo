@@ -12,11 +12,8 @@ from bs4 import BeautifulSoup
 from .gva_http import nuevo_cliente_gva
 
 BASE = "https://administracion.gob.es"
-RESULTADOS = (
-    f"{BASE}/content/pag-home/es/empleopublico/resultadosEmpleo/"
-    "jcr:content/root/container/containerSpace/pag_front_formulario.list.html"
-)
-RESULTADOS_LEGACY = f"{BASE}/pagFront/ofertasempleopublico/resultadosEmpleo.htm"\nDETALLE = f"{BASE}/empleopublico/resultadosEmpleo/detalle-empleo"
+RESULTADOS = f"{BASE}/empleopublico/resultadosEmpleo"
+DETALLE = f"{BASE}/empleopublico/resultadosEmpleo/detalle-empleo"
 UA = "NetReto-Empleo/1.0 (https://netexamenes.com)"
 TAM_PAGINA = 10
 
@@ -74,71 +71,71 @@ def _get(client: httpx.Client, url: str, *, params: dict | None = None) -> httpx
     raise ultimo
 
 
-def _parse_total(soup: BeautifulSoup) -> int:
+def _parse_total(soup: BeautifulSoup) -> int | None:
     texto = _limpio(soup.get_text(" ", strip=True))
-    m = re.search(r"Total(?: de)? resultados:\s*([\d.]+)", texto, re.I)
-    if not m:
-        raise ValueError("No se localiza el total de resultados")
-    return int(m.group(1).replace(".", ""))
+    m = re.search(r"Total(?: de)? resultados:?\s*([\d.]+)", texto, re.I)
+    return int(m.group(1).replace(".", "")) if m else None
 
 
 def _parse_tarjetas(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     salida: list[dict] = []
-    for div in soup.select(".dnt-item, .pag-card-convo"):
-        enlace = div.find("a", href=re.compile(r"selectorget=\d+"))
-        if not enlace:
-            continue
-        href = enlace.get("href") or ""
+    vistos: set[int] = set()
+    for enlace in soup.find_all("a", href=True):
+        href = str(enlace.get("href") or "")
         m = re.search(r"selectorget=(\d+)", href)
         if not m:
             continue
-        texto = _limpio(div.get_text(" ", strip=True))
-        m_ubic = re.search(r"Ubicaci[oó]n:\s*(.+?)(?=\s+[ÓO]rgano convocante:)", texto, re.I)
-        m_org = re.search(r"[ÓO]rgano convocante:\s*(.+?)(?=\s+Plazas:|$)", texto, re.I)
-        salida.append({
-            "referencia": int(m.group(1)),
-            "titulo": _limpio(enlace.get_text(" ", strip=True)),
-            "ubicacion": _limpio(m_ubic.group(1)) if m_ubic else None,
-            "organo": _limpio(m_org.group(1)) if m_org else None,
-            "url": urljoin(BASE, href),
-        })
+        referencia = int(m.group(1))
+        if referencia in vistos:
+            continue
+        vistos.add(referencia)
+        contenedor = enlace
+        for _ in range(6):
+            padre = contenedor.parent
+            if padre is None:
+                break
+            texto_padre = _limpio(padre.get_text(" ", strip=True))
+            if len(texto_padre) >= 40:
+                contenedor = padre
+                break
+            contenedor = padre
+        texto = _limpio(contenedor.get_text(" ", strip=True))
+        m_ubic = re.search(r"Ubicaci[oó]n:?\s*(.+?)(?=\s+[ÓO]rgano convocante|\s+Plazas?:|$)", texto, re.I)
+        m_org = re.search(r"[ÓO]rgano convocante:?\s*(.+?)(?=\s+Plazas?:|\s+Titulaci[oó]n|$)", texto, re.I)
+        salida.append({"referencia": referencia, "titulo": _limpio(enlace.get_text(" ", strip=True)),
+                       "ubicacion": _limpio(m_ubic.group(1)) if m_ubic else None,
+                       "organo": _limpio(m_org.group(1)) if m_org else None,
+                       "url": urljoin(BASE, href)})
     return salida
 
 
-def _params_intervalo(desde: date, hasta: date) -> dict[str, str]:
+def _params_intervalo(desde: date, hasta: date, offset: int = 1) -> dict[str, str]:
     return {
-        "pag_fecha": "intervalo",
-        "fechaDesde": desde.strftime("%d/%m/%Y"),
-        "fechaHasta": hasta.strftime("%d/%m/%Y"),
-        "pag_sort": "desc",
+        "buscar": "true", "tipoBusqueda": "BOLSA_EMPLEO", "tipoConvocatoria": "2",
+        "tipoFechas": "default", "fechaPublicacionDesde": desde.strftime("%d/%m/%Y"),
+        "fechaPublicacionHasta": hasta.strftime("%d/%m/%Y"), "orders": "id", "sort": "desc",
+        "desde": str(offset), "viaAcceso": "2",
     }
 
 
 def descubrir_referencias(client: httpx.Client, desde: date, hasta: date) -> list[dict]:
-    # El componente AEM reenvía los filtros activos en cada petición paginada.
-    params_base = _params_intervalo(desde, hasta)
-    r = _get(client, RESULTADOS, params=params_base)
-    total = _parse_total(BeautifulSoup(r.text, "html.parser"))
-    paginas = max(1, math.ceil(total / TAM_PAGINA)) if total else 1
-    tarjetas = _parse_tarjetas(r.text)
-
-    for pagina in range(2, paginas + 1):
-        rp = _obtener_listado(client, {**params_base, "p": str(pagina)})
-        tarjetas.extend(_parse_tarjetas(rp.text))
-
-    referencias_unicas = {x["referencia"] for x in tarjetas}
-    if len(referencias_unicas) != total:
-        raise RuntimeError(
-            f"Listado inconsistente en {desde.isoformat()}..{hasta.isoformat()}: "
-            f"{len(tarjetas)} tarjetas, {len(referencias_unicas)} referencias únicas, total {total}"
-        )
-
-    encontrados: dict[int, dict] = {}
-    for item in tarjetas:
-        if "AUTONÓMICO - COMUNITAT VALENCIANA" in (item.get("ubicacion") or "").upper():
-            encontrados[item["referencia"]] = item
-    return [encontrados[k] for k in sorted(encontrados)]
+    todas: dict[int, dict] = {}
+    for pagina in range(1, 101):
+        offset = 1 if pagina == 1 else (pagina - 1) * TAM_PAGINA + 1
+        r = _get(client, RESULTADOS, params=_params_intervalo(desde, hasta, offset))
+        tarjetas = _parse_tarjetas(r.text)
+        if not tarjetas:
+            break
+        for item in tarjetas:
+            if "AUTONÓMICO - COMUNITAT VALENCIANA" in (item.get("ubicacion") or "").upper():
+                todas[item["referencia"]] = item
+        total = _parse_total(BeautifulSoup(r.text, "html.parser"))
+        if total is not None and len(todas) >= total:
+            break
+        if len(tarjetas) < TAM_PAGINA:
+            break
+    return [todas[k] for k in sorted(todas)]
 
 
 def _extraer_via(texto: str) -> str | None:
