@@ -351,7 +351,7 @@ def importar_gva_estatal(*, desde: date, hasta: date, aplicar: bool = False) -> 
         fichas_gva = _enriquecer_fichas_oficiales_gva(registros, client)
 
     persistencia = persistir_registros(registros, aplicar=aplicar)
-    seguimiento = actualizar_seguimientos_gva(aplicar=aplicar)
+    seguimiento = actualizar_seguimientos_gva(aplicar=aplicar, solo_oportunidades=True)
     auditoria_dogv = diagnosticar_seguimiento_dogv() if not aplicar else None
     errores_seguimiento = list(seguimiento.get("errores") or [])
     bolsas = seguimiento.get("bolsas") or {}
