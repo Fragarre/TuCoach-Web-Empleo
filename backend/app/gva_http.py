@@ -66,33 +66,19 @@ class GVAResilientClient:
         if self._proxy is not None:
             try:
                 response = self._proxy.get(url, params=params, **kwargs)
-                if response.status_code not in ESTADOS_PROXY:
-                    self.used_proxy = True
-                    self.proxy_reason = "proxy_preferente"
-                    return response
-                response.close()
                 self.used_proxy = True
-                self.proxy_reason = f"proxy_HTTP_{response.status_code}"
+                self.proxy_reason = (
+                    "proxy_preferente"
+                    if response.status_code not in ESTADOS_PROXY
+                    else f"proxy_HTTP_{response.status_code}"
+                )
+                return response
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 self.used_proxy = True
                 self.proxy_reason = f"proxy_{type(exc).__name__}"
-        try:
-            response = self._direct.get(url, params=params, **kwargs)
-            if response.status_code not in ESTADOS_PROXY:
-                return response
-            if self._proxy is None:
-                return response
-            response.close()
-            self.used_proxy = True
-            self.proxy_reason = f"HTTP_{response.status_code}"
-            return self._proxy.get(url, params=params, **kwargs)
-        except (httpx.TimeoutException, httpx.NetworkError):
-            if self._proxy is None:
                 raise
-            # Si el proxy ya fue probado arriba, no repetir la petición.
-            if self.used_proxy and self.proxy_reason and self.proxy_reason.startswith("proxy_"):
-                raise
-            raise
+
+        return self._direct.get(url, params=params, **kwargs)
 
     def close(self) -> None:
         self._direct.close()
