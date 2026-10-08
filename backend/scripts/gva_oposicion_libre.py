@@ -127,13 +127,23 @@ def extraer_plazo(texto: str) -> tuple[date | None, date | None]:
     return None, None
 
 
+def extraer_etapa_actual(texto: str) -> str:
+    m = re.search(
+        r"Etapa actual\\s*:?\\s*(.+?)(?=\\s+Código SIA\\b|\\s+Código GVA\\b|\\s+Informaci[oó]n b[aá]sica\\b|$)",
+        texto,
+        re.I,
+    )
+    return normalizar(m.group(1)) if m else ""
+
 def es_fase_no_activa(texto: str) -> tuple[bool, str | None]:
-    normal = sin_acentos(texto)
+    etapa = sin_acentos(extraer_etapa_actual(texto))
+    if not etapa:
+        return False, None
     for patron in PATRONES_EXCLUSION:
-        if patron in normal:
+        if patron in etapa:
             return True, patron
     for patron in ESTADOS_TERMINALES:
-        if patron in normal:
+        if patron in etapa:
             return True, patron
     return False, None
 
