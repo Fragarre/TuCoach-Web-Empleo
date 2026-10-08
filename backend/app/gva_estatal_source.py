@@ -16,7 +16,7 @@ RESULTADOS = (
     f"{BASE}/content/pag-home/es/empleopublico/resultadosEmpleo/"
     "jcr:content/root/container/containerSpace/pag_front_formulario.list.html"
 )
-DETALLE = f"{BASE}/empleopublico/resultadosEmpleo/detalle-empleo"
+RESULTADOS_LEGACY = f"{BASE}/pagFront/ofertasempleopublico/resultadosEmpleo.htm"\nDETALLE = f"{BASE}/empleopublico/resultadosEmpleo/detalle-empleo"
 UA = "NetReto-Empleo/1.0 (https://netexamenes.com)"
 TAM_PAGINA = 10
 
@@ -124,7 +124,7 @@ def descubrir_referencias(client: httpx.Client, desde: date, hasta: date) -> lis
     tarjetas = _parse_tarjetas(r.text)
 
     for pagina in range(2, paginas + 1):
-        rp = _get(client, RESULTADOS, params={**params_base, "p": str(pagina)})
+        rp = _obtener_listado(client, {**params_base, "p": str(pagina)})
         tarjetas.extend(_parse_tarjetas(rp.text))
 
     referencias_unicas = {x["referencia"] for x in tarjetas}
