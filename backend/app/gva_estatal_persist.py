@@ -332,22 +332,49 @@ def _insertar_publicacion(
     return creada
 
 
+def _cargar_publicaciones_por_referencia(
+    cursor,
+    referencias: list[int],
+) -> set[int]:
+    """Consulta publicaciones por referencia sin exigir todavía una fuente DOGV.
+
+    Se usa exclusivamente en SOLO_REVISION. El modo aplicado debe resolver
+    explícitamente la fuente DOGV antes de consultar o escribir publicaciones.
+    """
+    if not referencias:
+        return set()
+    refs = [_referencia_publicacion(r) for r in referencias]
+    cursor.execute(
+        "SELECT referencia FROM publicaciones WHERE referencia = ANY(%s)",
+        (refs,),
+    )
+    salida: set[int] = set()
+    for fila in cursor.fetchall():
+        valor = fila.get("referencia") or ""
+        partes = valor.split(":")
+        if len(partes) >= 3 and partes[1].isdigit():
+            salida.add(int(partes[1]))
+    return salida
+
+
 def persistir_registros(registros: list[dict[str, Any]], *, aplicar: bool = False) -> dict[str, Any]:
     identificadores = [r["identificador_estable"] for r in registros]
     referencias = [int(r["referencia_estatal"]) for r in registros]
+
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
-        organismo_gva_id, fuente_dogv_id = _resolver_identidad_gva(cursor)
         existentes = _cargar_existentes(cursor, identificadores)
+
+        if not aplicar:
+            publicaciones = _cargar_publicaciones_por_referencia(cursor, referencias)
+            return planificar_persistencia(registros, existentes, publicaciones)
+
+        organismo_gva_id, fuente_dogv_id = _resolver_identidad_gva(cursor)
         publicaciones = _cargar_publicaciones_estatales(
             cursor,
             referencias,
             fuente_dogv_id=fuente_dogv_id,
         )
         plan = planificar_persistencia(registros, existentes, publicaciones)
-
-        if not aplicar:
-            plan["fuente_dogv_id"] = fuente_dogv_id
-            return plan
 
         if plan["resumen"]["bloquear"]:
             raise RuntimeError("Persistencia GVA bloqueada: el plan contiene anomalías")
