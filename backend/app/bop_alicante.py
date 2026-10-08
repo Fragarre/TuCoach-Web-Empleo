@@ -100,6 +100,33 @@ def _sin(texto: str) -> str:
 def _es_candidato_empleo(registro: dict[str, Any]) -> bool:
     return registro.get("ambito_administrativo") == "SI"
 
+def _tipo_organismo_alicante(texto: str | None) -> str:
+    normal = _sin(texto or "")
+    if "diputacion provincial de alicante" in normal or "diputacion de alicante" in normal:
+        return "DIPUTACION"
+    if "ayuntamiento" in normal or "ajuntament" in normal:
+        return "AYUNTAMIENTO"
+    return "OTRO"
+
+
+def _filtrar_tipo_organismo(
+    revision: dict[str, Any],
+    tipo_organismo: str | None,
+) -> dict[str, Any]:
+    if tipo_organismo is None:
+        return revision
+    tipo = tipo_organismo.upper()
+    if tipo not in {"DIPUTACION", "AYUNTAMIENTO"}:
+        raise ValueError("tipo_organismo debe ser DIPUTACION o AYUNTAMIENTO")
+    filtrada = dict(revision)
+    filtrada["detalle"] = [
+        item for item in revision.get("detalle", [])
+        if _tipo_organismo_alicante(item.get("organismo")) == tipo
+    ]
+    filtrada["tipo_organismo"] = tipo
+    return filtrada
+
+
 
 def seleccionar_proceso_seguimiento(
     hallazgo: dict[str, Any],
@@ -219,6 +246,7 @@ def preparar_importacion_bop_alicante(
     dias_solape: int = 7,
     hasta: date | None = None,
     max_items: int = 500,
+    tipo_organismo: str | None = None,
 ) -> dict[str, Any]:
     """Prepara la persistencia usando solo lecturas de BD; nunca escribe."""
     revision = consultar_bop_alicante(
@@ -226,6 +254,7 @@ def preparar_importacion_bop_alicante(
         hasta=hasta,
         max_items=max_items,
     )
+    revision = _filtrar_tipo_organismo(revision, tipo_organismo)
     resultado: dict[str, Any] = {
         "modo": "SOLO_REVISION_BD",
         "fuente": revision["fuente"],
@@ -321,6 +350,7 @@ def importar_bop_alicante(
     hasta: date | None = None,
     max_items: int = 500,
     aplicar: bool = False,
+    tipo_organismo: str | None = None,
 ) -> dict[str, Any]:
     """Importación idempotente del BOP Alicante; por defecto solo revisión."""
     if not aplicar:
@@ -328,6 +358,7 @@ def importar_bop_alicante(
             dias_solape=dias_solape,
             hasta=hasta,
             max_items=max_items,
+            tipo_organismo=tipo_organismo,
         )
 
     revision = consultar_bop_alicante(
@@ -335,6 +366,7 @@ def importar_bop_alicante(
         hasta=hasta,
         max_items=max_items,
     )
+    revision = _filtrar_tipo_organismo(revision, tipo_organismo)
     if revision["errores"]:
         return {
             "modo": "APLICAR",
