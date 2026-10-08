@@ -85,7 +85,7 @@ def _parse_total(soup: BeautifulSoup) -> int:
 def _parse_tarjetas(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     salida: list[dict] = []
-    for div in soup.select(".dnt-item"):
+    for div in soup.select(".dnt-item, .pag-card-convo"):
         enlace = div.find("a", href=re.compile(r"selectorget=\d+"))
         if not enlace:
             continue
