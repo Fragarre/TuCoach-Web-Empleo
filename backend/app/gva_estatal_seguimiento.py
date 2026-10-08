@@ -152,7 +152,7 @@ def _cargar_procesos_activos() -> list[dict[str, Any]]:
             nombre="Generalitat Valenciana",
         )
         if organismo is None:
-            raise RuntimeError("Seguimiento GVA bloqueado: no existe el organismo Generalitat Valenciana")
+            return []
         cursor.execute(
             """
             SELECT id, identificador_estable, denominacion, estado, datos_json
