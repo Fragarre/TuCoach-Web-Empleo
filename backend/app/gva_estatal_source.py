@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
-
 import math
 import re
 import time
 import unicodedata
 from datetime import date, timedelta
-from urllib.parse import quote, urljoin
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -253,24 +251,12 @@ def clasificar_oportunidad(tarjeta: dict, detalle: dict) -> dict:
     }
 
 
-def nuevo_cliente() -> httpx.Client:
-    proxy_url = os.getenv("GVA_PROXY_URL")
-    proxy_user = os.getenv("GVA_PROXY_USER")
-    proxy_password = os.getenv("GVA_PROXY_PASSWORD")
-
-    proxy_config = None
-    if proxy_url or proxy_user or proxy_password:
-        if not (proxy_url and proxy_user and proxy_password):
-            raise RuntimeError("Configuración incompleta del proxy GVA")
-        proxy_config = proxy_url.replace(
-            "://",
-            f"://{quote(proxy_user, safe='')}:{quote(proxy_password, safe='')}@",
-            1,
-        )
-
-    return httpx.Client(
-        proxy=proxy_config,
+def nuevo_cliente():
+    """Cliente GVA directo con fallback selectivo al proxy español."""
+    return nuevo_cliente_gva(
         timeout=httpx.Timeout(45.0, connect=15.0),
-        headers={"User-Agent": UA, "Accept-Language": "es-ES,es;q=0.9"},
-        follow_redirects=True,
+        headers={
+            "User-Agent": UA,
+            "Accept-Language": "es-ES,es;q=0.9",
+        },
     )
