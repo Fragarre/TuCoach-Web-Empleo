@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
+from .gva_http import nuevo_cliente_gva
 
 BASE = "https://administracion.gob.es"
 RESULTADOS = (
