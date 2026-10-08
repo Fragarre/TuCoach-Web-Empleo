@@ -15,7 +15,7 @@ _SPEC = importlib.util.spec_from_file_location("app.gva_estatal_source", _MODULE
 assert _SPEC and _SPEC.loader
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
-_es_admin = _MODULE._es_admin
+_es_admin = _MODULE._es_admin\n_obtener_listado = _MODULE._obtener_listado\n_parse_tarjetas = _MODULE._parse_tarjetas
 
 
 class AmbitoGvaEstatalTest(unittest.TestCase):
