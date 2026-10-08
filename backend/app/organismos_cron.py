@@ -22,6 +22,10 @@ DIAS_SOLAPE_DEFECTO = 7
 
 ORGANISMOS = (
     "gva",
+    "gva_oportunidades",
+    "gva_bolsas",
+    "gva_adc",
+    "gva_cesiones",
     "diputacion_valencia",
     "ayuntamientos_valencia",
     "diputacion_alicante",
@@ -94,6 +98,39 @@ def ejecutar_gva(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
         )
     _feedback("GVA finalizada correctamente")
     return resultado
+
+
+def ejecutar_gva_oportunidades(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
+    """Ejecuta exclusivamente Oportunidades GVA, incluyendo su seguimiento DOGV."""
+    desde, hasta = _rango(hoy=hoy, dias=dias)
+    _feedback(f"GVA oportunidades iniciada | periodo {desde.isoformat()} → {hasta.isoformat()} | aplicar={aplicar}")
+    resultado = _ejecutar_componente(
+        "GVA oportunidades",
+        lambda: importar_gva_estatal(desde=desde, hasta=hasta, aplicar=aplicar),
+    )
+    _feedback("GVA oportunidades finalizada correctamente")
+    return {"organismo": "gva_oportunidades", "componente": "oportunidades", "desde": desde.isoformat(), "hasta": hasta.isoformat(), "resultado": resultado}
+
+
+def ejecutar_gva_bolsas(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
+    _feedback(f"GVA bolsas iniciada | aplicar={aplicar}")
+    resultado = _ejecutar_componente("GVA bolsas", lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar))
+    _feedback("GVA bolsas finalizada correctamente")
+    return {"organismo": "gva_bolsas", "componente": "bolsas", "resultado": resultado}
+
+
+def ejecutar_gva_adc(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
+    _feedback(f"GVA ADC iniciada | aplicar={aplicar}")
+    resultado = _ejecutar_componente("GVA ADC", lambda: persistir_adc_gva(aplicar=aplicar))
+    _feedback("GVA ADC finalizada correctamente")
+    return {"organismo": "gva_adc", "componente": "adc", "resultado": resultado}
+
+
+def ejecutar_gva_cesiones(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
+    _feedback(f"GVA cesiones iniciada | aplicar={aplicar}")
+    resultado = _ejecutar_componente("GVA cesiones", lambda: persistir_cesiones_gva(aplicar=aplicar))
+    _feedback("GVA cesiones finalizada correctamente")
+    return {"organismo": "gva_cesiones", "componente": "cesiones", "resultado": resultado}
 
 
 def ejecutar_diputacion_valencia(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
@@ -186,6 +223,10 @@ def ejecutar_ayuntamientos_castellon(*, hoy: date, dias: int, aplicar: bool) -> 
 
 EJECUTORES: dict[str, Callable[..., dict[str, Any]]] = {
     "gva": ejecutar_gva,
+    "gva_oportunidades": ejecutar_gva_oportunidades,
+    "gva_bolsas": ejecutar_gva_bolsas,
+    "gva_adc": ejecutar_gva_adc,
+    "gva_cesiones": ejecutar_gva_cesiones,
     "diputacion_valencia": ejecutar_diputacion_valencia,
     "ayuntamientos_valencia": ejecutar_ayuntamientos_valencia,
     "diputacion_alicante": ejecutar_diputacion_alicante,
