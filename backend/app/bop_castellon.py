@@ -369,13 +369,31 @@ def _identidad_organismo(organismo: str | None) -> dict[str, str | None]:
     return {"tipo": "DESCONOCIDO", "provincia": "Castellón", "municipio": None}
 
 
+def _filtrar_revision_por_tipo_organismo(revision: dict[str, Any], tipo_organismo: str | None) -> dict[str, Any]:
+    """Limita una revisión de Castellón a Diputación o ayuntamientos sin alterar la fuente."""
+    if tipo_organismo is None:
+        return revision
+    tipo = tipo_organismo.upper()
+    if tipo not in {"DIPUTACION", "AYUNTAMIENTO"}:
+        raise ValueError("tipo_organismo debe ser DIPUTACION o AYUNTAMIENTO")
+    filtrada = dict(revision)
+    filtrada["detalle"] = [
+        hallazgo for hallazgo in revision.get("detalle", [])
+        if _identidad_organismo(hallazgo.get("organismo")).get("tipo") == tipo
+    ]
+    filtrada["tipo_organismo"] = tipo
+    return filtrada
+
+
 def preparar_revision_castellon(
     *,
     desde: date | None = None,
     hasta: date | None = None,
+    tipo_organismo: str | None = None,
 ) -> dict[str, Any]:
     """Expone el plan de identidad institucional sin consultar ni modificar BD."""
     revision = consultar_bop_castellon(desde=desde, hasta=hasta)
+    revision = _filtrar_revision_por_tipo_organismo(revision, tipo_organismo)
     detalle = []
     for hallazgo in revision["detalle"]:
         if hallazgo["clase"] not in ("NUEVA_CONVOCATORIA", "ANUNCIO_DIFICIL_COBERTURA", "SEGUIMIENTO"):
@@ -406,9 +424,11 @@ def preparar_importacion_bop_castellon(
     *,
     desde: date | None = None,
     hasta: date | None = None,
+    tipo_organismo: str | None = None,
 ) -> dict[str, Any]:
     """Prepara la persistencia con lecturas de BD; nunca escribe."""
     revision = consultar_bop_castellon(desde=desde, hasta=hasta)
+    revision = _filtrar_revision_por_tipo_organismo(revision, tipo_organismo)
     resultado: dict[str, Any] = {
         "modo": "SOLO_REVISION_BD",
         "fuente": revision["fuente"],
@@ -528,12 +548,18 @@ def importar_bop_castellon(
     desde: date | None = None,
     hasta: date | None = None,
     aplicar: bool = False,
+    tipo_organismo: str | None = None,
 ) -> dict[str, Any]:
     """Importación idempotente del BOP Castellón; por defecto solo revisión."""
     if not aplicar:
-        return preparar_importacion_bop_castellon(desde=desde, hasta=hasta)
+        return preparar_importacion_bop_castellon(
+            desde=desde,
+            hasta=hasta,
+            tipo_organismo=tipo_organismo,
+        )
 
     revision = consultar_bop_castellon(desde=desde, hasta=hasta)
+    revision = _filtrar_revision_por_tipo_organismo(revision, tipo_organismo)
     resultado: dict[str, Any] = {
         "modo": "APLICAR",
         "fuente": revision["fuente"],
