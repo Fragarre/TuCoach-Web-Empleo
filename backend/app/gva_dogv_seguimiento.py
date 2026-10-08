@@ -130,7 +130,7 @@ def _preparar_item_publicacion(item: dict[str, Any]) -> dict[str, Any]:
     return salida
 
 
-def _planificar() -> dict[str, Any]:
+def _planificar(*, solo_oportunidades: bool = False) -> dict[str, Any]:
     procesos = _cargar_procesos_activos()
     hoy = date.today()
     acciones: list[dict[str, Any]] = []
@@ -155,6 +155,8 @@ def _planificar() -> dict[str, Any]:
             }
 
             if _es_bolsa(proceso):
+                if solo_oportunidades:
+                    continue
                 acciones.append({
                     **base,
                     "accion": "BOLSA_SEGUIMIENTO_SIMPLIFICADO",
@@ -316,7 +318,7 @@ def _insertar_publicacion(
     return int(fila["id"]) if fila else None
 
 
-def actualizar_seguimientos_gva_dogv(*, aplicar: bool = False) -> dict[str, Any]:
+def actualizar_seguimientos_gva_dogv(*, aplicar: bool = False, solo_oportunidades: bool = False) -> dict[str, Any]:
     """Seguimiento GVA por DOGV estructurado.
 
     La primera ejecución migra el baseline de cada convocatoria de forma
@@ -324,8 +326,10 @@ def actualizar_seguimientos_gva_dogv(*, aplicar: bool = False) -> dict[str, Any]
     versión 2 del estado, solo se publican documentos DOGV nuevos que coinciden
     por identidad fuerte exacta.
     """
-    plan = _planificar()
+    plan = _planificar(solo_oportunidades=solo_oportunidades)
     if not aplicar:
+        if solo_oportunidades:
+            return {"modo": "SOLO_REVISION", "escrituras_bd": False, **plan, "bolsas": None}
         bolsas = actualizar_bolsas_gva_simplificadas(aplicar=False)
         return {"modo": "SOLO_REVISION", "escrituras_bd": False, **plan, "bolsas": bolsas}
 
@@ -420,7 +424,7 @@ def actualizar_seguimientos_gva_dogv(*, aplicar: bool = False) -> dict[str, Any]
                     (fecha_max, fecha_max, int(accion["proceso_id"])),
                 )
 
-    bolsas = actualizar_bolsas_gva_simplificadas(aplicar=True)
+    bolsas = None if solo_oportunidades else actualizar_bolsas_gva_simplificadas(aplicar=True)
     return {
         "modo": "APLICADO",
         "escrituras_bd": True,
