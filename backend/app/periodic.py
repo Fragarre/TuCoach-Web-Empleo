@@ -13,15 +13,7 @@ from .boe_local_extractor import extraer_convocatorias_boe_local
 from .boe_local_import import previsualizar_importacion_boe_local, recuperar_boe_para_proceso_bop
 from .database import get_connection
 from psycopg.rows import dict_row
-from .bop_valencia_patch import diagnosticar_bop, importar_bop_valencia
-from .bop_valencia_municipios import importar_municipales_bop
-from .bop_castellon import importar_bop_castellon
-from .bop_alicante import importar_bop_alicante
-from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
-from .gva_estatal_service import importar_gva_estatal
-from .gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
-from .gva_adc import persistir_adc_gva
-from .gva_cesion_datos import persistir_cesiones_gva
+from .organismos_cron import ejecutar_organismo
 from .notificaciones_generales import enviar_envios_pendientes, filtrar_nuevas_oportunidades_notificables, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
 from .clasificacion_auditoria import revisar_clasificacion_puestos
@@ -234,65 +226,39 @@ def ejecutar_periodico(
         resultado["estado_fuentes"][nombre] = estado
         resultado["duraciones_fuentes_segundos"][nombre] = round(duracion, 1)
 
-    def ejecutar_bop_diputacion() -> Any:
-        if aplicar:
-            return importar_bop_valencia(historico=True, dias=dias_solape)
-        headers = {
-            "User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)",
-            "Accept-Language": "es-ES,es;q=0.9",
-        }
-        with httpx.Client(timeout=30, headers=headers, follow_redirects=True) as client:
-            return {
-                "modo": "SOLO_DIAGNOSTICO",
-                "resultado": diagnosticar_bop(client, fecha=fecha_hoy.isoformat()),
-            }
+    registrar(
+        "bop_valencia_diputacion",
+        lambda: ejecutar_organismo("diputacion_valencia", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+    )
 
-    registrar("bop_valencia_diputacion", ejecutar_bop_diputacion)
-
-    # El BOP municipal se mantiene antes que BOE: en modo aplicado, BOE puede
-    # vincular con bases municipales detectadas en esta misma ejecución.
     registrar(
         "bop_valencia_municipios",
-        lambda: importar_municipales_bop(
-            hasta=fecha_hoy,
-            dias=dias_solape,
-            aplicar=aplicar,
-        ),
+        lambda: ejecutar_organismo("ayuntamientos_valencia", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
     )
 
     registrar(
         "bop_castellon",
-        lambda: importar_bop_castellon(
-            desde=desde,
-            hasta=fecha_hoy,
-            aplicar=aplicar,
-        ),
+        lambda: ejecutar_organismo("diputacion_castellon", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+    )
+
+    registrar(
+        "bop_castellon_municipios",
+        lambda: ejecutar_organismo("ayuntamientos_castellon", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
     )
 
     registrar(
         "alicante_otras_entidades",
-        lambda: bootstrap_otras_entidades_alicante(
-            max_items=200,
-            aplicar=aplicar,
-        ),
+        lambda: ejecutar_organismo("diputacion_alicante", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
     )
 
     registrar(
         "bop_alicante",
-        lambda: importar_bop_alicante(
-            dias_solape=dias_solape,
-            hasta=fecha_hoy,
-            aplicar=aplicar,
-        ),
+        lambda: ejecutar_organismo("ayuntamientos_alicante", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
     )
 
     registrar(
         "boe_pendientes_activos",
-        lambda: _recuperar_boe_pendientes_activos(
-            hasta=fecha_hoy,
-            dias=dias_solape,
-            aplicar=aplicar,
-        ),
+        lambda: _recuperar_boe_pendientes_activos(hasta=fecha_hoy, dias=dias_solape, aplicar=aplicar),
     )
 
     # En SOLO_REVISION la recuperación anterior no persiste las publicaciones
@@ -323,31 +289,8 @@ def ejecutar_periodico(
 
     registrar(
         "gva",
-        lambda: importar_gva_estatal(
-            desde=desde,
-            hasta=fecha_hoy,
-            aplicar=aplicar,
-        ),
+        lambda: ejecutar_organismo("gva", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
     )
-
-    # Complemento oficial GVA: bolsas administrativas generales A1-01/A2-01/C1-01/C2-01
-    # que no siempre aparecen en la fuente estatal. La persistencia deduplica
-    # también contra procesos GVAESTATAL ya resueltos a id_emp.
-    registrar(
-        "gva_bolsas_administrativas",
-        lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar),
-    )
-
-    # Anuncios de difícil cobertura administrativos. La propia persistencia
-    # mantiene silenciosa la carga histórica y solo publica relaciones
-    # documentales cuando corresponde.
-    registrar(
-        "gva_adc",
-        lambda: persistir_adc_gva(aplicar=aplicar),
-    )
-
-    # Cesiones GVA: solo novedades de bolsas explícitamente relacionadas.
-    registrar("gva_cesiones_datos", lambda: persistir_cesiones_gva(aplicar=aplicar))
 
     # Se activa explícitamente tras validar la auditoría histórica. Procesa una
     # tanda pequeña, aislada del resto de fuentes, y nunca reescribe campos.
