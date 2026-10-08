@@ -66,8 +66,26 @@ def _familia_perfil(texto: str) -> str | None:
     return None
 
 
+def _es_provision_puesto(titulo: str) -> bool:
+    """Reconoce actos de provisión de puestos, ajenos a procesos selectivos."""
+    n = _bop._sin(titulo)
+    puesto = "lloc de treball" in n or "puesto de trabajo" in n
+    jefatura = any(marca in n for marca in (
+        "cap d'unitat", "cap de servei", "cap de seccio",
+        "jefatura", "jefe de unidad", "jefa de unidad",
+        "jefe de servicio", "jefa de servicio",
+    ))
+    provision = "provisio" in n or "provision" in n
+    return puesto and (jefatura or provision)
+
+
 def _identificador_estable(titulo: str, texto: str) -> str:
     """Usa el código de convocatoria, separando colisiones reales de perfiles."""
+    # Un nombramiento de provisión puede reutilizar el número de una oposición.
+    # No debe enlazarse por el código aunque exista un proceso con ese número.
+    if not _es_convocatoria_base(titulo, texto) and _es_provision_puesto(titulo):
+        return "DVAL:T:" + hashlib.sha256(_bop._sin(titulo).encode("utf-8")).hexdigest()[:24]
+
     contenido = titulo + " " + texto
     convocatoria = _bop._convocatoria(contenido)
     if not convocatoria:
