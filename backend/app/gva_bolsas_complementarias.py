@@ -231,9 +231,7 @@ def _cargar_coincidencias(candidatos: list[dict[str, Any]]) -> dict[int, dict[st
             nombre="Generalitat Valenciana",
         )
         if organismo is None:
-            raise RuntimeError(
-                "Auditoría GVA bloqueada: no existe el organismo Generalitat Valenciana"
-            )
+            return {}
         cursor.execute(
             """
             SELECT id, identificador_estable, denominacion, cuerpo_escala, grupo,
