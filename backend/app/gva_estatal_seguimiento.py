@@ -183,8 +183,8 @@ def _obtener_html(client, referencia: int) -> str:
     return respuesta.text
 
 
-def actualizar_seguimientos_gva(*, aplicar: bool = False) -> dict[str, Any]:
+def actualizar_seguimientos_gva(*, aplicar: bool = False, solo_oportunidades: bool = False) -> dict[str, Any]:
     """Punto de entrada estable; desde v2 delega en DOGV estructurado directo."""
     from .gva_dogv_seguimiento import actualizar_seguimientos_gva_dogv
 
-    return actualizar_seguimientos_gva_dogv(aplicar=aplicar)
+    return actualizar_seguimientos_gva_dogv(aplicar=aplicar, solo_oportunidades=solo_oportunidades)
