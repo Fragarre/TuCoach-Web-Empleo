@@ -31,11 +31,12 @@ def _proxy_url() -> str | None:
 
 
 class GVAResilientClient:
-    """Cliente GVA directo con fallback selectivo al proxy español.
+    """Cliente GVA con proxy preferente y fallback directo.
 
-    El tráfico normal sale directamente. El proxy solo se utiliza cuando
-    el acceso directo falla por red/timeout o devuelve un estado compatible
-    con bloqueo o indisponibilidad transitoria.
+    Desde Render, el acceso directo a la Sede GVA queda bloqueado/colgado.
+    Cuando existe configuración de proxy, se utiliza primero para evitar
+    esperar el timeout del acceso directo. Si el proxy falla por red/timeout
+    o devuelve un estado transitorio, se intenta el acceso directo.
     """
 
     def __init__(
@@ -62,22 +63,36 @@ class GVAResilientClient:
         self.proxy_reason: str | None = None
 
     def get(self, url: str, *, params: dict | None = None, **kwargs):
+        if self._proxy is not None:
+            try:
+                response = self._proxy.get(url, params=params, **kwargs)
+                if response.status_code not in ESTADOS_PROXY:
+                    self.used_proxy = True
+                    self.proxy_reason = "proxy_preferente"
+                    return response
+                response.close()
+                self.used_proxy = True
+                self.proxy_reason = f"proxy_HTTP_{response.status_code}"
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                self.used_proxy = True
+                self.proxy_reason = f"proxy_{type(exc).__name__}"
         try:
             response = self._direct.get(url, params=params, **kwargs)
             if response.status_code not in ESTADOS_PROXY:
                 return response
             if self._proxy is None:
                 return response
-            self.used_proxy = True
-            self.proxy_reason = f"HTTP {response.status_code}"
             response.close()
+            self.used_proxy = True
+            self.proxy_reason = f"HTTP_{response.status_code}"
             return self._proxy.get(url, params=params, **kwargs)
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except (httpx.TimeoutException, httpx.NetworkError):
             if self._proxy is None:
                 raise
-            self.used_proxy = True
-            self.proxy_reason = type(exc).__name__
-            return self._proxy.get(url, params=params, **kwargs)
+            # Si el proxy ya fue probado arriba, no repetir la petición.
+            if self.used_proxy and self.proxy_reason and self.proxy_reason.startswith("proxy_"):
+                raise
+            raise
 
     def close(self) -> None:
         self._direct.close()
