@@ -12,11 +12,7 @@ from .gva_estatal_source import DETALLE, _get, _limpio, _sin
 from .organismos import resolver_organismo
 
 
-ESTADOS_TERMINALES = {
-    "finalizado", "finalitzado", "finalitzat",
-    "cancelado", "cancel·lado", "cancel·lat",
-    "desistido", "desistit", "anulado", "anul·lat",
-}
+from .ciclo_vida import ESTADOS_TERMINALES  # noqa: E402  (definición única)
 
 
 def _tokens_identidad(texto: str) -> set[str]:

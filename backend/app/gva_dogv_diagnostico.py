@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import re
+import time
 from typing import Any
 
 import httpx
@@ -12,7 +13,8 @@ from .gva_estatal_seguimiento import (
     _tokens_identidad,
     extraer_seguimientos_validos,
 )
-from .gva_estatal_source import nuevo_cliente
+from .festivos import hoy_es
+from .gva_estatal_source import nuevo_cliente, nuevo_cliente_dogv
 
 DOGV_API = "https://dogv.gva.es/dogv-portal"
 
@@ -29,19 +31,57 @@ def _fecha_url_dogv(url: str | None) -> str | None:
     return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
 
 
+# Caché de UN ciclo. Cada proceso activo consulta ±5 días en torno a sus fechas
+# y esas ventanas se solapan casi por completo entre procesos: sin caché se
+# repetían las mismas peticiones (que además viajan por el proxy de pago).
+_CACHE_DIARIOS: dict[str, dict[str, Any]] = {}
+_CACHE_DETALLES: dict[int, dict[str, Any]] = {}
+REINTENTOS_DOGV = 3
+
+
+def limpiar_cache_dogv() -> None:
+    _CACHE_DIARIOS.clear()
+    _CACHE_DETALLES.clear()
+
+
+def _get_json(client: httpx.Client, url: str, params: dict[str, Any]) -> dict[str, Any]:
+    """GET JSON con reintentos ante fallos transitorios (red, timeout, 5xx, 429).
+    Los 4xx restantes se propagan de inmediato: reintentarlos no los arregla."""
+    ultimo: Exception | None = None
+    for intento in range(1, REINTENTOS_DOGV + 1):
+        try:
+            respuesta = client.get(url, params=params)
+            respuesta.raise_for_status()
+            return respuesta.json()
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+            ultimo = exc
+            estado = getattr(getattr(exc, "response", None), "status_code", None)
+            if estado is not None and estado < 500 and estado != 429:
+                raise
+            if intento < REINTENTOS_DOGV:
+                time.sleep(2 * intento)
+    assert ultimo is not None
+    raise ultimo
+
+
 def _leer_diario(client: httpx.Client, fecha: str) -> dict[str, Any]:
-    respuesta = client.get(f"{DOGV_API}/dogv", params={"date": fecha, "lang": "es_es"})
-    respuesta.raise_for_status()
-    return respuesta.json()
+    # El diario de hoy puede seguir ampliándose: solo se cachean días cerrados.
+    cacheable = fecha < hoy_es().isoformat()
+    if cacheable and fecha in _CACHE_DIARIOS:
+        return _CACHE_DIARIOS[fecha]
+    diario = _get_json(client, f"{DOGV_API}/dogv", {"date": fecha, "lang": "es_es"})
+    if cacheable:
+        _CACHE_DIARIOS[fecha] = diario
+    return diario
 
 
 def _detalle_disposicion(client: httpx.Client, resumen: dict[str, Any]) -> dict[str, Any]:
     dogv_id = int(resumen["id"])
-    respuesta = client.get(f"{DOGV_API}/disposicion/{dogv_id}", params={"lang": "es_es"})
-    respuesta.raise_for_status()
-    detalle = respuesta.json()
+    if dogv_id in _CACHE_DETALLES:
+        return _CACHE_DETALLES[dogv_id]
+    detalle = _get_json(client, f"{DOGV_API}/disposicion/{dogv_id}", {"lang": "es_es"})
     texto_identidad = " ".join(str(x or "") for x in (detalle.get("titulo"), detalle.get("texto")))
-    return {
+    salida = {
         "ok": True,
         "id_dogv": dogv_id,
         "codigo_insercion": detalle.get("codigoInsercion") or resumen.get("codigoInsercion"),
@@ -52,6 +92,8 @@ def _detalle_disposicion(client: httpx.Client, resumen: dict[str, Any]) -> dict[
         "organismo": detalle.get("organismo") or resumen.get("organismo"),
         "tokens_dogv": sorted(_tokens_identidad(texto_identidad)),
     }
+    _CACHE_DETALLES[dogv_id] = salida
+    return salida
 
 
 def _obtener_disposicion_dogv(client: httpx.Client, *, signatura: str, fecha_publicacion: str | None) -> dict[str, Any]:
@@ -67,7 +109,7 @@ def _obtener_disposicion_dogv(client: httpx.Client, *, signatura: str, fecha_pub
         diario = _leer_diario(client, fecha_iso)
         coincidencias = [x for x in (diario.get("disposiciones") or []) if str(x.get("codigoInsercion") or "").strip() == codigo]
         if len(coincidencias) == 1:
-            salida = _detalle_disposicion(client, coincidencias[0])
+            salida = dict(_detalle_disposicion(client, coincidencias[0]))
             salida["fecha_consultada"] = fecha_iso
             salida["fecha_resuelta_por"] = "FECHA_EXACTA" if indice == 0 else "CODIGO_EXACTO_VENTANA_5_DIAS"
             return salida
@@ -121,13 +163,10 @@ def _descubrir_dogv_en_fechas(client: httpx.Client, *, identidad: set[str], fech
 
 def diagnosticar_seguimiento_dogv() -> dict[str, Any]:
     """Construye el plan de migración al DOGV directo. Siempre es solo lectura."""
+    limpiar_cache_dogv()
     procesos = _cargar_procesos_activos()
     salida: list[dict[str, Any]] = []
-    with nuevo_cliente() as estatal, httpx.Client(
-        timeout=httpx.Timeout(30.0, connect=10.0),
-        headers={"User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)", "Accept-Language": "es-ES,es;q=0.9"},
-        follow_redirects=True,
-    ) as dogv:
+    with nuevo_cliente() as estatal, nuevo_cliente_dogv() as dogv:
         for proceso in procesos:
             proceso_id = int(proceso["id"])
             referencia = int(proceso["referencia_estatal"])

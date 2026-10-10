@@ -12,6 +12,7 @@ from xml.sax.saxutils import escape
 
 import httpx
 
+from .festivos import hoy_es
 from .ambito_administrativo import clasificar_ambito_administrativo
 from .database import get_connection
 from .bop_valencia import _grupo_subgrupo, _obtener_texto
@@ -175,7 +176,7 @@ def consultar_bop_alicante(
     max_items: int = 500,
 ) -> dict[str, Any]:
     """SOLO_REVISION del BOP Alicante: consulta, normaliza y clasifica; no usa BD."""
-    hasta = hasta or date.today()
+    hasta = hasta or hoy_es()
     desde = hasta - timedelta(days=max(dias_solape, 0))
 
     resultado: dict[str, Any] = {

@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from . import gva_clean as base
 from .database import get_connection
 from .ambito_administrativo import clasificar_ambito_administrativo
+from .ciclo_vida import ESTADOS_TERMINALES_SQL_IN
 
 _BASE_PARSEAR_DETALLE = base.parsear_detalle
 _BASE_IMPORTAR_GVA_ROBUSTO = base.importar_gva_robusto
@@ -145,7 +146,7 @@ def _detalles_existentes_a_seguir() -> list[tuple[int, str]]:
             WHERE organismo_id=%s
               AND es_oportunidad=TRUE
               AND ambito_administrativo IN ('SI','REVISION')
-              AND COALESCE(LOWER(estado),'') NOT IN ('finalizado','cancelado','desistido')
+              AND COALESCE(LOWER(estado),'') NOT IN """ + ESTADOS_TERMINALES_SQL_IN + """
               AND identificador_estable LIKE 'GVA:%%'
             ORDER BY id
             """, (base.GVA_ORGANISMO_ID,),

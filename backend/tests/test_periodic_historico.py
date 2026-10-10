@@ -1,3 +1,4 @@
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 import sys
 import unittest
@@ -9,6 +10,25 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app.periodic import _validar_dias_solape, ejecutar_periodico
+
+
+ORGANISMOS_FUNCIONES = {
+    "importar_bop_valencia", "importar_municipales_bop", "importar_bop_castellon",
+    "bootstrap_otras_entidades_alicante", "importar_bop_alicante", "importar_gva_estatal",
+    "persistir_bolsas_gva_complementarias", "persistir_adc_gva", "persistir_cesiones_gva",
+}
+
+
+@contextmanager
+def parchear(parches):
+    """Las funciones de cada organismo viven ahora en app.organismos_cron; el
+    resto (ciclos, BOE, notificaciones) siguen en app.periodic."""
+    with ExitStack() as pila:
+        pila.enter_context(patch.multiple(
+            "app.periodic", **{k: v for k, v in parches.items() if k not in ORGANISMOS_FUNCIONES}))
+        pila.enter_context(patch.multiple(
+            "app.organismos_cron", **{k: v for k, v in parches.items() if k in ORGANISMOS_FUNCIONES}))
+        yield
 
 
 class PeriodicHistoricoTest(unittest.TestCase):
@@ -36,8 +56,13 @@ class PeriodicHistoricoTest(unittest.TestCase):
             "persistir_bolsas_gva_complementarias": lambda **_: {},
             "persistir_adc_gva": lambda **_: {},
             "persistir_cesiones_gva": lambda **_: {},
+            "reconciliar_cierres": lambda **_: {},
+            # El ciclo reserva/cierra su registro en BD: aquí se simula.
+            "iniciar_ciclo": lambda **_: (5, "INICIADO"),
+            "finalizar_ciclo": lambda *a, **k: None,
+            "registrar_ejecuciones": lambda *a, **k: None,
         }
-        with patch.multiple("app.periodic", **fuentes), patch(
+        with parchear(fuentes), patch(
             "app.periodic.ids_oportunidades_visibles"
         ) as visibles, patch(
             "app.periodic.ids_novedades_seguimiento"
@@ -52,14 +77,13 @@ class PeriodicHistoricoTest(unittest.TestCase):
                 "bop_valencia_diputacion",
                 "bop_valencia_municipios",
                 "bop_castellon",
+                "bop_castellon_municipios",
                 "alicante_otras_entidades",
                 "bop_alicante",
                 "boe_pendientes_activos",
                 "boe_local",
                 "gva",
-                "gva_bolsas_administrativas",
-                "gva_adc",
-                "gva_cesiones_datos",
+                "reconciliacion_cierres",
             },
         )
         visibles.assert_not_called()

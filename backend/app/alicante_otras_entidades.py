@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .ambito_administrativo import clasificar_ambito_administrativo
 from .database import get_connection
+from .ciclo_vida import clasificar_etiqueta_estado
 from .estado_proceso import clasificar_evento_terminal
 from .organismos import resolver_fuente, resolver_organismo
 
@@ -91,7 +92,10 @@ def _parse_listado(html: str) -> list[dict[str, Any]]:
         enlaces = [urljoin(BASE_URL, a.get("href")) for a in tr.find_all("a", href=True)]
         enlace = enlaces[0] if enlaces else None
         clave = f"{entidad}|{plaza}|{enlace or ''}"
-        estado_terminal = clasificar_evento_terminal(None, observaciones or "")
+        estado_terminal = (
+            clasificar_evento_terminal(None, observaciones or "")
+            or clasificar_etiqueta_estado(observaciones)
+        )
         estado_revision = "TERMINAL" if estado_terminal else "CANDIDATO_ACTIVO"
 
         filas.append(

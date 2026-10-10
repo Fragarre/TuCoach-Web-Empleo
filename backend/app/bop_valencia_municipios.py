@@ -12,11 +12,13 @@ from bs4 import BeautifulSoup
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from . import bop_valencia as _bop
 from . import bop_valencia_patch as _bop_patch
 from .ambito_administrativo import clasificar_ambito_administrativo
 from .database import get_connection
 from .estado_proceso import clasificar_evento_terminal
+from .ciclo_vida import es_estado_terminal
 from .organismos import resolver_fuente, resolver_organismo
 
 
@@ -131,7 +133,7 @@ def _extraer_anuncios_municipales(html: str) -> list[dict[str, Any]]:
 
 
 def descubrir_municipales_bop(*, hasta: date | None = None, dias: int = 30) -> dict[str, Any]:
-    hasta = hasta or date.today()
+    hasta = hasta or hoy_es()
     desde = hasta - timedelta(days=max(0, dias - 1))
     headers = {"User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)", "Accept-Language": "es-ES,es;q=0.9"}
     hallazgos, errores, vistos = [], [], set()
@@ -284,7 +286,7 @@ def importar_municipales_bop(*, hasta: date, dias: int = 30, aplicar: bool = Fal
                 plazas_nuevas = _extraer_plazas(h["titulo"])
                 cambia_plazas = plazas_nuevas is not None and plazas_nuevas != proceso.get("plazas")
                 estado_terminal = clasificar_evento_terminal(proceso.get("tipo_proceso"), h["titulo"])
-                finaliza = bool(estado_terminal) and str(proceso.get("estado") or "").upper() not in {"FINALIZADO", "DESISTIDO", "ANULADO", "CANCELADO"}
+                finaliza = bool(estado_terminal) and not es_estado_terminal(proceso.get("estado"))
                 if cambia_plazas:
                     item["plazas_anterior"] = proceso.get("plazas")
                     item["plazas_nueva"] = plazas_nuevas

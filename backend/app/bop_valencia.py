@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from pypdf import PdfReader
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from .database import get_connection
 from .organismos import resolver_fuente, resolver_organismo
 from .estado_proceso import clasificar_evento_terminal
@@ -357,7 +358,7 @@ def descubrir_anuncios(client: httpx.Client, historico: bool = False, dias: int 
         r = client.get(BOP_URL)
         r.raise_for_status()
         return _extraer_anuncios_pagina(r.text)
-    hoy = date.today()
+    hoy = hoy_es()
     desde = hoy - timedelta(days=max(0, dias - 1))
     fechas = [desde + timedelta(days=i) for i in range((hoy - desde).days + 1)]
     resultados: list[dict[str, Any]] = []

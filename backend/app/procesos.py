@@ -1,7 +1,8 @@
 from typing import Any
 
 from .database import get_connection
-from .estado_proceso import estado_inscripcion
+from .ciclo_vida import ESTADOS_TERMINALES_SQL
+from .estado_proceso import esta_en_plazo, estado_inscripcion
 
 
 TIPOS_EXCLUIDOS = (
@@ -26,11 +27,9 @@ PATRONES_TITULO_EXCLUIDOS = (
     "concurso de méritos para cubrir", "concurso de meritos para cubrir",
 )
 
-ESTADOS_TERMINALES = (
-    "finalizado", "finalitzado", "finalitzat",
-    "cancelado", "cancel·lado", "cancel·lat",
-    "desistido", "desistit", "anulado", "anul·lat",
-)
+ESTADOS_TERMINALES = ESTADOS_TERMINALES_SQL  # definición única en ciclo_vida
+
+LIMITE_SQL_EN_PLAZO = 1000
 
 TIPOS_EMPLEO_PRIVADO = {
     "bolsa de trabajo",
@@ -113,9 +112,16 @@ def _enriquecer_proceso(fila: dict[str, Any]) -> dict[str, Any]:
     return enriquecida
 
 
-def listar_procesos(*, organismo_id: int | None = None, estado: str | None = None, limite: int = 100, incluir_privados: bool = False) -> list[dict[str, Any]]:
-    """Lista oportunidades administrativas cuyo proceso selectivo sigue activo."""
+def listar_procesos(*, organismo_id: int | None = None, estado: str | None = None, limite: int = 100, incluir_privados: bool = False, en_plazo: bool = False) -> list[dict[str, Any]]:
+    """Lista oportunidades administrativas cuyo proceso selectivo sigue activo.
+
+    Con ``en_plazo`` solo devuelve las que tienen la inscripción abierta hoy. El
+    plazo se deriva después de leer la fila, así que el límite SQL se amplía y el
+    recorte a ``limite`` se hace al final: filtrar tras un LIMIT ya aplicado
+    ocultaría convocatorias abiertas.
+    """
     limite = max(1, min(limite, 200))
+    limite_sql = LIMITE_SQL_EN_PLAZO if en_plazo else limite
     catalogo_sql, params = _condiciones_catalogo()
     query = f"SELECT {SELECT_FIELDS} FROM procesos p JOIN organismos o ON o.id=p.organismo_id WHERE {catalogo_sql}"
     if organismo_id is not None:
@@ -133,13 +139,15 @@ def listar_procesos(*, organismo_id: int | None = None, estado: str | None = Non
           AND UPPER(TRIM(COALESCE(p.datos_json->>'categoria_gva', ''))) NOT IN ('BOLSA', 'ADC')
         """
     query += " ORDER BY COALESCE(p.fecha_examen,p.fecha_convocatoria,p.fecha_apertura) DESC NULLS LAST,p.id DESC LIMIT %s"
-    params.append(limite)
+    params.append(limite_sql)
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query, tuple(params)); rows=cursor.fetchall(); columns=[d.name for d in cursor.description]
     procesos = [_enriquecer_proceso(dict(zip(columns,row))) for row in rows]
     if not incluir_privados:
         procesos = [proceso for proceso in procesos if not es_proceso_privado(proceso)]
-    return procesos
+    if en_plazo:
+        procesos = [p for p in procesos if esta_en_plazo(p["inscripcion"])]
+    return procesos[:limite]
 
 
 def obtener_proceso(proceso_id: int) -> dict[str, Any] | None:

@@ -7,13 +7,16 @@ import httpx
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from .database import get_connection
 from .estado_proceso import clasificar_evento_terminal
+from .ciclo_vida import es_estado_terminal
 from .gva_bolsas_seguimiento import actualizar_bolsas_gva_simplificadas
 from .gva_dogv_diagnostico import (
     DOGV_API,
     _descubrir_dogv_en_fechas,
     _fecha_url_dogv,
+    limpiar_cache_dogv,
 )
 from .gva_estatal_persist import _resolver_identidad_gva
 from .gva_estatal_seguimiento import (
@@ -24,7 +27,7 @@ from .gva_estatal_seguimiento import (
     _tokens_identidad,
     extraer_seguimientos_validos,
 )
-from .gva_estatal_source import nuevo_cliente
+from .gva_estatal_source import nuevo_cliente, nuevo_cliente_dogv
 
 
 VERSION_ESTADO_DOGV = 2
@@ -131,19 +134,13 @@ def _preparar_item_publicacion(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _planificar(*, solo_oportunidades: bool = False) -> dict[str, Any]:
+    limpiar_cache_dogv()
     procesos = _cargar_procesos_activos()
-    hoy = date.today()
+    hoy = hoy_es()
     acciones: list[dict[str, Any]] = []
     errores: list[dict[str, Any]] = []
 
-    with nuevo_cliente() as estatal, httpx.Client(
-        timeout=httpx.Timeout(30.0, connect=10.0),
-        headers={
-            "User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)",
-            "Accept-Language": "es-ES,es;q=0.9",
-        },
-        follow_redirects=True,
-    ) as dogv:
+    with nuevo_cliente() as estatal, nuevo_cliente_dogv() as dogv:
         for proceso in procesos:
             estado = _estado_actual(proceso)
             base = {
@@ -379,7 +376,7 @@ def actualizar_seguimientos_gva_dogv(*, aplicar: bool = False, solo_oportunidade
                         cursor.execute("SELECT estado FROM procesos WHERE id=%s", (int(accion["proceso_id"]),))
                         fila_estado = cursor.fetchone()
                         estado_anterior = fila_estado.get("estado") if fila_estado else None
-                        if str(estado_anterior or "").upper() not in {"FINALIZADO", "DESISTIDO", "ANULADO", "CANCELADO"}:
+                        if not es_estado_terminal(estado_anterior):
                             cursor.execute(
                                 "UPDATE procesos SET estado=%s,updated_at=NOW() WHERE id=%s",
                                 (estado_terminal, int(accion["proceso_id"])),

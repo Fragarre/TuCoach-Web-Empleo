@@ -20,6 +20,7 @@ from pypdf import PdfReader
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from . import gva_clean
 from .database import get_connection
 from .gva_estatal_service import _get_gva_con_reintentos
@@ -112,7 +113,7 @@ def _plazo(soup: BeautifulSoup, proceso: dict[str, Any]) -> tuple[str | None, st
 
 
 def _accionable(apertura: str | None, cierre: str | None, estado: str | None) -> bool:
-    hoy = date.today()
+    hoy = hoy_es()
     a = date.fromisoformat(apertura) if apertura else None
     c = date.fromisoformat(cierre) if cierre else None
     if estado == "CERRADO" or (c is not None and c < hoy):

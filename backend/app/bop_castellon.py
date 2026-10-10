@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from .ambito_administrativo import clasificar_ambito_administrativo
 from .bop_valencia_municipios import _clasificar_anuncio, _sin
 from .bop_alicante import seleccionar_proceso_seguimiento
@@ -243,7 +244,7 @@ def consultar_bop_castellon(*, desde: date | None = None, hasta: date | None = N
     resultado: dict[str, Any] = {
         "modo": "SOLO_REVISION",
         "fuente": "Boletín Oficial de la Provincia de Castellón",
-        "hasta": (hasta or date.today()).isoformat(),
+        "hasta": (hasta or hoy_es()).isoformat(),
         "fecha_boletin": None,
         "numero_bop": None,
         "descubiertos": 0,
@@ -255,7 +256,7 @@ def consultar_bop_castellon(*, desde: date | None = None, hasta: date | None = N
         "muestra_extraida": [],
         "sin_organismo": [],
     }
-    limite_hasta = hasta or date.today()
+    limite_hasta = hasta or hoy_es()
     limite_desde = desde or limite_hasta
     resultado["desde"] = limite_desde.isoformat()
     resultado["boletines_revisados"] = 0

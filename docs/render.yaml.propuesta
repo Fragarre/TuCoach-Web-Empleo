@@ -1,0 +1,27 @@
+# PROPUESTA: no sustituye al render.yaml actual sin revisarlo.
+# Ajusta rootDir al directorio real del backend en tu repositorio.
+# El cron ejecuta el ciclo directamente (sin HTTP): el código de salida
+# refleja el resultado real, así que Render marcará el fallo si hay fuentes en ERROR.
+services:
+  - type: cron
+    name: tucoach-empleo-cron
+    runtime: python
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/run_periodic_http.py --aplicar
+    # 05:30 UTC (07:30 hora de verano / 06:30 invierno en España)
+    schedule: "30 5 * * *"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GVA_PROXY_URL
+        sync: false
+      - key: GVA_PROXY_USER
+        sync: false
+      - key: GVA_PROXY_PASSWORD
+        sync: false
+      - key: DOGV_USAR_PROXY
+        value: "true"
+      - key: EMPLOYMENT_CRON_ERRORES_TOLERADOS
+        value: "0"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import time
 import unicodedata
@@ -250,7 +251,7 @@ def clasificar_oportunidad(tarjeta: dict, detalle: dict) -> dict:
 
 
 def nuevo_cliente():
-    """Cliente GVA directo con fallback selectivo al proxy español."""
+    """Cliente GVA con proxy preferente (ver gva_http)."""
     return nuevo_cliente_gva(
         timeout=httpx.Timeout(45.0, connect=15.0),
         headers={
@@ -258,3 +259,16 @@ def nuevo_cliente():
             "Accept-Language": "es-ES,es;q=0.9",
         },
     )
+
+
+def nuevo_cliente_dogv():
+    """Cliente para dogv.gva.es. Antes salía SIEMPRE directo, sin proxy: si el
+    DOGV filtra IPs no españolas, los cierres de la Generalitat fallaban en
+    silencio. Usa el mismo cliente con proxy preferente que el resto de la GVA;
+    ``DOGV_USAR_PROXY=false`` lo desactiva (p. ej. si se comprueba que el DOGV
+    es accesible desde fuera y se quiere ahorrar tráfico del proxy)."""
+    usar = os.getenv("DOGV_USAR_PROXY", "true").strip().lower() not in {"false", "0", "no"}
+    cabeceras = {"User-Agent": UA, "Accept-Language": "es-ES,es;q=0.9"}
+    if usar:
+        return nuevo_cliente_gva(timeout=httpx.Timeout(30.0, connect=10.0), headers=cabeceras)
+    return httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0), headers=cabeceras, follow_redirects=True)

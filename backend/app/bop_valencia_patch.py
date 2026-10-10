@@ -9,6 +9,7 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 
+from .festivos import hoy_es
 from . import bop_valencia as _bop
 from .database import get_connection
 from .ambito_administrativo import clasificar_ambito_administrativo
@@ -166,7 +167,7 @@ def descubrir_anuncios(client: httpx.Client, historico: bool = False, dias: int 
         r = client.get(_bop.BOP_URL)
         r.raise_for_status()
         return _extraer_anuncios_pagina(r.text)
-    hoy = date.today()
+    hoy = hoy_es()
     desde = hoy - timedelta(days=max(0, dias - 1))
     fechas = [desde + timedelta(days=i) for i in range((hoy - desde).days + 1)]
     resultados: list[dict[str, Any]] = []
@@ -393,7 +394,7 @@ def diagnosticar_bop(client: httpx.Client, fecha: str | None = None) -> dict[str
         try:
             fecha_obj = date.fromisoformat(fecha)
         except ValueError:
-            fecha_obj = date.today()
+            fecha_obj = hoy_es()
         r0 = client.get(BOP_PORTAL_URL)
         r0.raise_for_status()
         soup = BeautifulSoup(r0.text, "html.parser")

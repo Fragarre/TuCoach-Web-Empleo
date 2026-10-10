@@ -5,6 +5,7 @@ import re
 
 from . import bop_valencia as _bop
 from .database import get_connection
+from .ciclo_vida import ESTADOS_TERMINALES_SQL_IN
 from .estado_proceso import clasificar_evento_terminal
 
 _BASE_IMPORTAR_BOP = _bop.importar_bop_valencia
@@ -136,7 +137,7 @@ def _postprocesar_estado_terminal() -> int:
                 ORDER BY fecha_publicacion DESC NULLS LAST,id DESC
             ) pub ON TRUE
             WHERE p.identificador_estable LIKE 'DVAL:%%'
-              AND COALESCE(LOWER(p.estado),'') NOT IN ('finalizado','cancelado','desistido','anulado')
+              AND COALESCE(LOWER(p.estado),'') NOT IN """ + ESTADOS_TERMINALES_SQL_IN + """
             ORDER BY p.id, pub.fecha_publicacion DESC NULLS LAST, pub.id DESC
             """
         )
@@ -150,7 +151,7 @@ def _postprocesar_estado_terminal() -> int:
 
         for proceso_id, (estado_anterior, publicacion_id, estado_nuevo) in terminal_por_proceso.items():
             cursor.execute(
-                "UPDATE procesos SET estado=%s,updated_at=NOW() WHERE id=%s AND COALESCE(LOWER(estado),'') NOT IN ('finalizado','cancelado','desistido','anulado')",
+                "UPDATE procesos SET estado=%s,updated_at=NOW() WHERE id=%s AND COALESCE(LOWER(estado),'') NOT IN " + ESTADOS_TERMINALES_SQL_IN,
                 (estado_nuevo, proceso_id),
             )
             if not cursor.rowcount:

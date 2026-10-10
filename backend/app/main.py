@@ -112,6 +112,7 @@ def procesos_publicos(
     organismo_id: int | None = Query(default=None),
     estado: str | None = Query(default=None),
     limite: int = Query(default=100, ge=1, le=200),
+    en_plazo: bool = Query(default=False, description="Solo convocatorias con inscripción abierta hoy"),
 ) -> list[dict[str, Any]]:
     """Catálogo público: excluye siempre Bolsas y ADC."""
     return listar_procesos(
@@ -119,6 +120,7 @@ def procesos_publicos(
         estado=estado,
         limite=limite,
         incluir_privados=False,
+        en_plazo=en_plazo,
     )
 
 
@@ -158,9 +160,9 @@ def fuentes(organismo_id: int | None = Query(None), solo_activas: bool = Query(T
     return listar_fuentes(organismo_id=organismo_id, solo_activas=solo_activas)
 
 @app.get("/procesos")
-def procesos(organismo_id: int | None = Query(default=None), estado: str | None = Query(default=None), limite: int = Query(default=100, ge=1, le=200), usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
+def procesos(organismo_id: int | None = Query(default=None), estado: str | None = Query(default=None), limite: int = Query(default=100, ge=1, le=200), en_plazo: bool = Query(default=False), usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> list[dict[str, Any]]:
     acceso = _acceso_empleo(usuario)
-    return listar_procesos(organismo_id=organismo_id, estado=estado, limite=limite, incluir_privados=acceso.private_employment)
+    return listar_procesos(organismo_id=organismo_id, estado=estado, limite=limite, incluir_privados=acceso.private_employment, en_plazo=en_plazo)
 
 @app.get("/procesos/{proceso_id}")
 def proceso(proceso_id: int, usuario: UsuarioAutenticado = Depends(_usuario_con_empleo)) -> dict[str, Any]:
@@ -298,35 +300,39 @@ def debug_gva_conectividad(
     except Exception as exc:
         resultado["dns"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
+    from .festivos import hoy_es
+    from .gva_estatal_source import nuevo_cliente, nuevo_cliente_dogv
+
     objetivos = [
-        ("portada", "https://sede.gva.es/es/"),
-        ("ficha", f"https://sede.gva.es/es/detall-ocupacio-publica?id_emp={id_emp}&id_info=info_basica"),
-        ("buscador", "https://sede.gva.es/es/cercador-ocupacio-publica?pagina=1&tipoOrganismo=1&plazos=A&tamanyoPagina=30"),
+        ("portada", "https://sede.gva.es/es/", nuevo_cliente),
+        ("ficha", f"https://sede.gva.es/es/detall-ocupacio-publica?id_emp={id_emp}&id_info=info_basica", nuevo_cliente),
+        ("buscador", "https://sede.gva.es/es/cercador-ocupacio-publica?pagina=1&tipoOrganismo=1&plazos=A&tamanyoPagina=30", nuevo_cliente),
+        # El DOGV es lo que cierra las convocatorias de la Generalitat: se prueba
+        # con el MISMO cliente (y proxy) que usa el ciclo periódico.
+        ("dogv", f"https://dogv.gva.es/dogv-portal/dogv?date={hoy_es().isoformat()}&lang=es_es", nuevo_cliente_dogv),
     ]
-    headers = {
-        "User-Agent": "NetReto-Empleo/0.1 (https://netexamenes.com)",
-        "Accept-Language": "es-ES,es;q=0.9",
+    resultado["proxy"] = {
+        "configurado": bool(os.getenv("GVA_PROXY_URL")),
+        "dogv_usa_proxy": os.getenv("DOGV_USAR_PROXY", "true").strip().lower() not in {"false", "0", "no"},
     }
-    timeout = httpx.Timeout(20.0, connect=10.0)
-    with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
-        for nombre, url in objetivos:
-            try:
+    for nombre, url, fabrica in objetivos:
+        try:
+            with fabrica() as client:
                 respuesta = client.get(url)
-                resultado["pruebas_http"].append({
-                    "nombre": nombre,
-                    "ok": True,
-                    "status_code": respuesta.status_code,
-                    "url_final": str(respuesta.url),
-                    "bytes": len(respuesta.content),
-                })
-            except Exception as exc:
-                request_url = str(getattr(getattr(exc, "request", None), "url", url))
-                resultado["pruebas_http"].append({
-                    "nombre": nombre,
-                    "ok": False,
-                    "url": request_url,
-                    "error": f"{type(exc).__name__}: {exc}",
-                })
+            resultado["pruebas_http"].append({
+                "nombre": nombre,
+                "ok": respuesta.status_code < 400,
+                "status_code": respuesta.status_code,
+                "url_final": str(respuesta.url),
+                "bytes": len(respuesta.content),
+            })
+        except Exception as exc:
+            resultado["pruebas_http"].append({
+                "nombre": nombre,
+                "ok": False,
+                "url": url,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
 
     return resultado
 

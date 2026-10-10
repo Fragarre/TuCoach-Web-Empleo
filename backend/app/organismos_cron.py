@@ -7,6 +7,8 @@ import time
 from datetime import date, timedelta
 from typing import Any, Callable
 
+from .festivos import hoy_es
+
 from .alicante_otras_entidades import bootstrap_otras_entidades_alicante
 from .bop_alicante import importar_bop_alicante
 from .bop_castellon import importar_bop_castellon
@@ -245,7 +247,7 @@ def ejecutar_organismo(
 ) -> dict[str, Any]:
     if organismo not in EJECUTORES:
         raise ValueError(f"Organismo no válido: {organismo}. Opciones: {', '.join(ORGANISMOS)}")
-    fecha = hoy or date.today()
+    fecha = hoy or hoy_es()
     return EJECUTORES[organismo](hoy=fecha, dias=dias, aplicar=aplicar)
 
 

@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from .festivos import hoy_es
 from .ambito_administrativo import clasificar_ambito_administrativo
 from .boe_local_diagnostico import (
     BOE_SUMARIO,
@@ -203,7 +204,7 @@ def _extraer_plazo_literal(texto: str) -> str | None:
 
 def extraer_convocatorias_boe_local(*, hasta: date | None = None, dias: int = 30) -> dict[str, Any]:
     """SOLO LECTURA. Convierte documentos BOE locales CV en convocatorias estructuradas."""
-    hasta = hasta or date.today()
+    hasta = hasta or hoy_es()
     desde = hasta - timedelta(days=max(0, dias - 1))
     convocatorias: list[dict[str, Any]] = []
     errores: list[dict[str, str]] = []

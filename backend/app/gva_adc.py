@@ -20,6 +20,7 @@ from pypdf import PdfReader
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from .database import get_connection
 from .organismos import resolver_fuente, resolver_organismo
 
@@ -286,7 +287,7 @@ def _estado_proceso_adc(etapa_actual: str | None) -> str:
 
 def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, estado_plazo: str | None) -> dict[str, Any]:
     """Determina si el ADC admite actuación del usuario en la fecha de consulta."""
-    hoy = date.today()
+    hoy = hoy_es()
 
     def convertir(valor: Any) -> date | None:
         iso = _fecha_iso(valor)

@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from .festivos import hoy_es
 from .ambito_administrativo import clasificar_ambito_administrativo
 
 BOE_SUMARIO = "https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}"
@@ -90,7 +91,7 @@ def _clasificar_documento_por_plazas(texto: str) -> tuple[str, list[dict[str, st
 
 def diagnosticar_boe_local(*, hasta: date | None = None, dias: int = 30) -> dict[str, Any]:
     """SOLO LECTURA. Diagnóstico por etapas de convocatorias locales CV desde BOE."""
-    hasta = hasta or date.today()
+    hasta = hasta or hoy_es()
     desde = hasta - timedelta(days=max(0, dias - 1))
     hallazgos: list[dict[str, Any]] = []
     errores: list[dict[str, str]] = []

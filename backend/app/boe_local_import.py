@@ -8,6 +8,7 @@ from typing import Any
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from .festivos import hoy_es
 from .boe_local_extractor import extraer_convocatorias_boe_local
 from .database import get_connection
 from .ambito_administrativo import clasificar_ambito_administrativo
@@ -627,7 +628,7 @@ def recuperar_boe_para_proceso_bop(
     extraccion_boe: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Recupera BOE histórico para un proceso BOP ya creado, sin ampliar el cron ordinario."""
-    hasta = hasta or date.today()
+    hasta = hasta or hoy_es()
     dias = (hasta - fecha_bases).days + 1
     if dias < 1:
         return {"modo": "APLICADO" if aplicar else "SOLO_REVISION", "estado": "FUERA_RANGO"}

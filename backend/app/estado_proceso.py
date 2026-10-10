@@ -6,6 +6,36 @@ from datetime import date, timedelta
 from typing import Any
 
 
+def _desde_ruta(nombre: str):
+    """Carga un módulo hermano por ruta (para cuando este fichero se carga
+    aislado con importlib, como hacen los tests, y no hay paquete)."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+    clave = f"_hermano_{nombre}"
+    if clave in sys.modules:
+        return sys.modules[clave]
+    ruta = Path(__file__).resolve().parent / f"{nombre}.py"
+    spec = importlib.util.spec_from_file_location(clave, ruta)
+    modulo = importlib.util.module_from_spec(spec)
+    sys.modules[clave] = modulo
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+def _cargar_hermano(nombre: str):
+    if __package__:
+        try:
+            return __import__(f"{__package__}.{nombre}", fromlist=[nombre])
+        except ImportError:
+            pass
+    return _desde_ruta(nombre)
+
+
+_festivos = _cargar_hermano("festivos")
+_ciclo = _cargar_hermano("ciclo_vida")
+
+
 def _sin(texto: str | None) -> str:
     return "".join(
         c
@@ -14,71 +44,13 @@ def _sin(texto: str | None) -> str:
     )
 
 
-_TERMINALES_COMUNES = (
-    "finalizacion del proceso",
-    "finalizacion del proceso selectivo",
-    "finalitzacio del proces",
-    "finalitzacio del proces selectiu",
-    "desistimiento",
-    "desistiment",
-    "anulacion",
-    "anul·lacio",
-    "anullacio",
-    "nombramiento como funcionario",
-    "nombramiento como funcionaria",
-    "nombramiento de funcionario",
-    "nomenament com a funcionari",
-    "nomenament com a funcionaria",
-    "nomenament de funcionari",
-    "toma de posesion",
-    "presa de possessio",
-    "adjudicacion definitiva",
-    "adjudicacio definitiva",
-    "adjudicacion de destinos",
-    "adjudicacio de destinacions",
-)
-
-_TERMINALES_PROVISION = (
-    "nombramiento mediante concurso",
-    "nomenament mitjancant concurs",
-)
-
-_NUMEROS_PLAZO = {
-    "cinco": 5,
-    "diez": 10,
-    "quince": 15,
-    "veinte": 20,
-    "treinta": 30,
-}
-
-# Calendario administrativo de la Comunitat Valenciana. Se mantiene por año
-# para no calcular fechas exactas con un calendario que no haya sido verificado.
-_FESTIVOS_CV: dict[int, set[date]] = {
-    2026: {
-        date(2026, 1, 1), date(2026, 1, 6), date(2026, 3, 19),
-        date(2026, 4, 3), date(2026, 4, 6), date(2026, 5, 1),
-        date(2026, 6, 24), date(2026, 8, 15), date(2026, 10, 9),
-        date(2026, 10, 12), date(2026, 12, 8), date(2026, 12, 25),
-    }
-}
-
-
 def es_bolsa(tipo_proceso: str | None) -> bool:
-    return "bolsa" in _sin(tipo_proceso) or "borsa" in _sin(tipo_proceso)
+    return _ciclo.es_bolsa(tipo_proceso)
 
 
 def clasificar_evento_terminal(tipo_proceso: str | None, titulo: str | None) -> str | None:
-    """Clasifica solo evidencias oficiales inequívocamente terminales."""
-    n = _sin(titulo)
-    if not n:
-        return None
-    if "desistimiento" in n or "desistiment" in n:
-        return "DESISTIDO"
-    if any(x in n for x in ("anulacion", "anullacio", "anul·lacio")):
-        return "ANULADO"
-    if any(_sin(x) in n for x in _TERMINALES_COMUNES + _TERMINALES_PROVISION):
-        return "FINALIZADO"
-    return None
+    """Estado terminal acreditado por un título oficial (ver ciclo_vida)."""
+    return _ciclo.clasificar_evento_terminal(tipo_proceso, titulo)
 
 
 def _dias_habiles_literal(literal: str) -> int | None:
@@ -98,22 +70,15 @@ def _dias_habiles_literal(literal: str) -> int | None:
 
 
 def _calcular_cierre_habiles(fecha_boe: date, dias: int, organismo: str | None) -> date | None:
-    """Calcula el último día con fines de semana y festivos estatales/autonómicos CV.
+    """Último día del plazo en días hábiles (sábados, domingos y festivos
+    estatales/autonómicos CV; cada día se consulta con el calendario de su año).
 
-    No incorpora festivos locales; el resultado debe mostrarse con advertencia
+    No incorpora festivos locales: el resultado debe mostrarse con advertencia
     para que el usuario confirme posibles días inhábiles del municipio.
     """
-    if dias <= 0 or fecha_boe.year not in _FESTIVOS_CV:
+    if dias <= 0:
         return None
-    festivos = _FESTIVOS_CV[fecha_boe.year]
-    actual = fecha_boe
-    contados = 0
-    while contados < dias:
-        actual += timedelta(days=1)
-        if actual.weekday() >= 5 or actual in festivos:
-            continue
-        contados += 1
-    return actual
+    return _festivos.sumar_dias_habiles(fecha_boe, dias)
 
 
 def _fecha_iso(valor: Any) -> date | None:
@@ -157,14 +122,26 @@ def _estado_plazo_boe(
         "fecha_cierre": cierre,
         "fecha_cierre_calculada": True,
         "calendario_aplicado": "COMUNITAT_VALENCIANA",
+        "calendario_verificado": all(
+            _festivos.calendario_verificado(y)
+            for y in _festivos.anios_tocados(fecha_boe, cierre)
+        ),
         "dias_habiles": dias,
         "literal": literal,
     }
 
 
+def esta_en_plazo(inscripcion: dict[str, Any]) -> bool:
+    """True si hay al menos un plazo de inscripción abierto hoy (incluye los
+    procesos con varios plazos, p. ej. varias publicaciones BOE agregadas)."""
+    if inscripcion.get("codigo") == "ABIERTO":
+        return True
+    return any((p or {}).get("codigo") == "ABIERTO" for p in inscripcion.get("plazos") or [])
+
+
 def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> dict[str, Any]:
     """Deriva la situación de inscripción sin mezclarla con el ciclo selectivo."""
-    hoy = hoy or date.today()
+    hoy = hoy or _festivos.hoy_es()
     apertura = proceso.get("fecha_apertura")
     cierre = proceso.get("fecha_cierre")
 

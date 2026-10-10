@@ -17,6 +17,15 @@ from .organismos_cron import ejecutar_organismo
 from .notificaciones_generales import enviar_envios_pendientes, filtrar_nuevas_oportunidades_notificables, ids_oportunidades_visibles, preparar_envios_eventos, registrar_nuevas_oportunidades
 from .seguimiento import ids_novedades_seguimiento, enviar_avisos_novedades
 from .clasificacion_auditoria import revisar_clasificacion_puestos
+from .ciclos import (
+    dias_necesarios,
+    finalizar_ciclo,
+    iniciar_ciclo,
+    registrar_ejecuciones,
+    ultimos_exitos,
+)
+from .festivos import hoy_es
+from .reconciliar_cierres import reconciliar_cierres
 
 
 DIAS_SOLAPE_DEFECTO = 7
@@ -167,12 +176,13 @@ def _recuperar_boe_pendientes_activos(*, hasta: date, dias: int, aplicar: bool) 
     return resultado
 
 
-def ejecutar_periodico(
+def _ejecutar_ciclo(
     *,
     aplicar: bool = False,
     hoy: date | None = None,
     dias_solape: int = DIAS_SOLAPE_DEFECTO,
     historico: bool = False,
+    ultimos_exitos: dict[str, date] | None = None,
 ) -> dict[str, Any]:
     """Orquesta las fuentes validadas de Empleo con aislamiento por fuente.
 
@@ -193,7 +203,7 @@ def ejecutar_periodico(
     """
     _validar_dias_solape(dias_solape=dias_solape, historico=historico)
 
-    fecha_hoy = hoy or date.today()
+    fecha_hoy = hoy or hoy_es()
     desde = fecha_hoy - timedelta(days=dias_solape - 1)
     notificaciones_habilitadas = bool(aplicar and not historico)
     visibles_antes = ids_oportunidades_visibles() if notificaciones_habilitadas else set()
@@ -209,7 +219,29 @@ def ejecutar_periodico(
         "fuentes": {},
         "estado_fuentes": {},
         "duraciones_fuentes_segundos": {},
+        "ventanas": {},
+        "ventanas_excedidas": {},
     }
+
+    def dias_de(nombre: str) -> int:
+        """Ventana de la fuente: cubre desde su último éxito (ordinario) o la
+        indicada por el operador (histórico). dias_solape es el mínimo."""
+        if historico or not ultimos_exitos:
+            dias = dias_solape
+        else:
+            dias, excede = dias_necesarios(
+                ultimos_exitos.get(nombre),
+                fecha_hoy,
+                solape_minimo=dias_solape,
+                tope=LIMITE_DIAS_ORDINARIO,
+            )
+            if excede:
+                resultado["ventanas_excedidas"][nombre] = (fecha_hoy - ultimos_exitos[nombre]).days
+        resultado["ventanas"][nombre] = dias
+        return dias
+
+    def desde_de(nombre: str) -> date:
+        return fecha_hoy - timedelta(days=dias_de(nombre) - 1)
 
     def registrar(nombre: str, funcion: Callable[[], Any]) -> None:
         inicio = time.monotonic()
@@ -228,37 +260,37 @@ def ejecutar_periodico(
 
     registrar(
         "bop_valencia_diputacion",
-        lambda: ejecutar_organismo("diputacion_valencia", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("diputacion_valencia", hoy=fecha_hoy, dias=dias_de("bop_valencia_diputacion"), aplicar=aplicar),
     )
 
     registrar(
         "bop_valencia_municipios",
-        lambda: ejecutar_organismo("ayuntamientos_valencia", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("ayuntamientos_valencia", hoy=fecha_hoy, dias=dias_de("bop_valencia_municipios"), aplicar=aplicar),
     )
 
     registrar(
         "bop_castellon",
-        lambda: ejecutar_organismo("diputacion_castellon", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("diputacion_castellon", hoy=fecha_hoy, dias=dias_de("bop_castellon"), aplicar=aplicar),
     )
 
     registrar(
         "bop_castellon_municipios",
-        lambda: ejecutar_organismo("ayuntamientos_castellon", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("ayuntamientos_castellon", hoy=fecha_hoy, dias=dias_de("bop_castellon_municipios"), aplicar=aplicar),
     )
 
     registrar(
         "alicante_otras_entidades",
-        lambda: ejecutar_organismo("diputacion_alicante", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("diputacion_alicante", hoy=fecha_hoy, dias=dias_de("alicante_otras_entidades"), aplicar=aplicar),
     )
 
     registrar(
         "bop_alicante",
-        lambda: ejecutar_organismo("ayuntamientos_alicante", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("ayuntamientos_alicante", hoy=fecha_hoy, dias=dias_de("bop_alicante"), aplicar=aplicar),
     )
 
     registrar(
         "boe_pendientes_activos",
-        lambda: _recuperar_boe_pendientes_activos(hasta=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: _recuperar_boe_pendientes_activos(hasta=fecha_hoy, dias=dias_de("boe_local"), aplicar=aplicar),
     )
 
     # En SOLO_REVISION la recuperación anterior no persiste las publicaciones
@@ -281,7 +313,7 @@ def ejecutar_periodico(
         "boe_local",
         lambda: previsualizar_importacion_boe_local(
             hasta=fecha_hoy,
-            dias=dias_solape,
+            dias=dias_de("boe_local"),
             aplicar=aplicar,
             boe_ids_absorbidos=boe_absorbidos_revision,
         ),
@@ -289,7 +321,7 @@ def ejecutar_periodico(
 
     registrar(
         "gva",
-        lambda: ejecutar_organismo("gva", hoy=fecha_hoy, dias=dias_solape, aplicar=aplicar),
+        lambda: ejecutar_organismo("gva", hoy=fecha_hoy, dias=dias_de("gva"), aplicar=aplicar),
     )
 
     # Se activa explícitamente tras validar la auditoría histórica. Procesa una
@@ -303,6 +335,14 @@ def ejecutar_periodico(
                 ordenar_por_reciente=True,
             ),
         )
+
+    # Da de baja todo proceso cuyo resultado final ya consta en publicaciones,
+    # provenga de la fuente que provenga. Va después de todas las fuentes para
+    # ver también lo ingerido en este mismo ciclo.
+    registrar(
+        "reconciliacion_cierres",
+        lambda: reconciliar_cierres(aplicar=aplicar, historico=historico),
+    )
 
     estados = [fuente["estado"] for fuente in resultado["estado_fuentes"].values()]
     if notificaciones_habilitadas:
@@ -335,4 +375,65 @@ def ejecutar_periodico(
         "degradadas": sum(e == "DEGRADADA" for e in estados),
         "errores": sum(e == "ERROR" for e in estados),
     }
+    return resultado
+
+
+def ejecutar_periodico(
+    *,
+    aplicar: bool = False,
+    hoy: date | None = None,
+    dias_solape: int = DIAS_SOLAPE_DEFECTO,
+    historico: bool = False,
+) -> dict[str, Any]:
+    """Punto de entrada del ciclo: exclusión mutua + ventanas + trazabilidad.
+
+    Solo el modo APLICADO reserva ciclo (SOLO_REVISION no escribe y puede
+    ejecutarse en paralelo). Si hay otro ciclo en curso devuelve un payload
+    ``ciclo.omitido`` sin tocar nada.
+    """
+    _validar_dias_solape(dias_solape=dias_solape, historico=historico)
+    ciclo_id: int | None = None
+    info_ciclo: dict[str, Any] = {"disponible": True}
+    if aplicar:
+        ciclo_id, estado_ciclo = iniciar_ciclo(historico=historico)
+        if estado_ciclo == "OMITIDO_CICLO_EN_CURSO":
+            return {
+                "modo": "APLICADO",
+                "ciclo": {"omitido": True, "motivo": "otro ciclo periódico sigue en curso"},
+                "resumen_fuentes": {"total": 0, "ok": 0, "sin_novedades": 0, "degradadas": 0, "errores": 0},
+            }
+        info_ciclo["disponible"] = estado_ciclo != "SIN_TABLAS"
+    try:
+        exitos = {} if historico else ultimos_exitos()
+        resultado = _ejecutar_ciclo(
+            aplicar=aplicar,
+            hoy=hoy,
+            dias_solape=dias_solape,
+            historico=historico,
+            ultimos_exitos=exitos,
+        )
+    except Exception as exc:
+        finalizar_ciclo(ciclo_id, "CON_ERRORES", {"excepcion": f"{type(exc).__name__}: {str(exc)[:500]}"})
+        raise
+
+    resultado["ciclo"] = {**info_ciclo, "id": ciclo_id}
+    hasta = date.fromisoformat(resultado["hasta"])
+    ejecuciones = []
+    for nombre, estado in resultado["estado_fuentes"].items():
+        ejecuciones.append({
+            "fuente": nombre,
+            "estado": estado["estado"],
+            "duracion_s": resultado["duraciones_fuentes_segundos"].get(nombre),
+            "hasta_fecha": hasta,
+            "dias_ventana": resultado["ventanas"].get(nombre),
+            "error": estado.get("error"),
+        })
+    if aplicar:
+        registrar_ejecuciones(ciclo_id, ejecuciones)
+        con_errores = resultado["resumen_fuentes"]["errores"] > 0
+        finalizar_ciclo(
+            ciclo_id,
+            "CON_ERRORES" if con_errores else "OK",
+            {"resumen_fuentes": resultado["resumen_fuentes"], "ventanas": resultado["ventanas"]},
+        )
     return resultado

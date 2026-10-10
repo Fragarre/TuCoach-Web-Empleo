@@ -12,6 +12,7 @@ from . import gva_clean
 from .gva_bolsas_complementarias import _clasificar_detalle
 from .gva_estatal_service import _get_gva_con_reintentos
 from .estado_proceso import clasificar_evento_terminal
+from .ciclo_vida import es_estado_terminal
 from .gva_estatal_persist import _resolver_identidad_gva
 from .gva_estatal_seguimiento import (
     ESTADOS_TERMINALES,
@@ -429,7 +430,7 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
                     cursor.execute("SELECT estado FROM procesos WHERE id=%s", (int(accion["proceso_id"]),))
                     fila = cursor.fetchone()
                     anterior = fila.get("estado") if fila else None
-                    if str(anterior or "").upper() not in {"FINALIZADO", "DESISTIDO", "ANULADO", "CANCELADO"}:
+                    if not es_estado_terminal(anterior):
                         cursor.execute(
                             "UPDATE procesos SET estado=%s,updated_at=NOW() WHERE id=%s",
                             (estado_terminal, int(accion["proceso_id"])),
