@@ -31,6 +31,15 @@ ESTADOS_TERMINALES = ESTADOS_TERMINALES_SQL  # definición única en ciclo_vida
 
 LIMITE_SQL_EN_PLAZO = 1000
 
+# Relevancia de las convocatorias locales (ayuntamientos y diputaciones).
+# Su estado solo puede comprobarse leyendo boletines; si pasa más de un año sin
+# ninguna publicación relacionada, es casi seguro que el proceso se resolvió sin
+# que lo detectáramos, o que ya no interesa. Se oculta del catálogo SIN cerrarlo
+# (reaparece sola si llega una publicación nueva). La GVA no se ve afectada: su
+# estado se verifica en la ficha de la sede.
+MESES_SIN_ACTIVIDAD_LOCAL = 12
+TIPOS_ORGANISMO_LOCALES = ("AYUNTAMIENTO", "DIPUTACION")
+
 TIPOS_EMPLEO_PRIVADO = {
     "bolsa de trabajo",
     "difícil cobertura",
@@ -56,6 +65,13 @@ def _condiciones_catalogo() -> tuple[str, list[Any]]:
     # cuando una fuente oficial acredita un estado terminal del proceso.
     condiciones.append(f"COALESCE(LOWER(p.estado), '') NOT IN ({placeholders_estado})")
     params: list[Any] = list(TIPOS_EXCLUIDOS) + list(ESTADOS_TERMINALES)
+    locales = ", ".join(f"'{t}'" for t in TIPOS_ORGANISMO_LOCALES)
+    condiciones.append(
+        f"(o.tipo NOT IN ({locales}) OR COALESCE(GREATEST("
+        "p.fecha_convocatoria, p.fecha_apertura, p.fecha_cierre, p.ultima_publicacion_at::date, "
+        "(SELECT MAX(pub_act.fecha_publicacion) FROM publicaciones pub_act WHERE pub_act.proceso_id = p.id)"
+        f"), CURRENT_DATE) >= CURRENT_DATE - INTERVAL '{int(MESES_SIN_ACTIVIDAD_LOCAL)} months')"
+    )
     for patron in PATRONES_TITULO_EXCLUIDOS:
         condiciones.append("POSITION(%s IN LOWER(COALESCE(p.denominacion, ''))) = 0")
         params.append(patron)
