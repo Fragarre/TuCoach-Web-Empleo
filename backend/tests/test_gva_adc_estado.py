@@ -13,6 +13,7 @@ from app.gva_adc import (
     _extraer_bolsas_texto_oficial,
     _numero_adc,
     _persistir_relaciones_adc_bolsas,
+    _publicacion_adc_en_bolsa,
     _relacion_bolsas_efectiva,
 )
 
@@ -189,6 +190,54 @@ class EstadoProcesoAdcTest(unittest.TestCase):
         self.assertEqual(cursor.execute.call_count, 1)
         parametros = cursor.execute.call_args.args[1]
         self.assertEqual(parametros, (100, "241-B", None, "PDF_OFICIAL"))
+
+
+class _CursorPublicaciones:
+    """Tabla publicaciones simulada con la restricción real: (fuente, referencia,
+    url) único en toda la tabla."""
+
+    def __init__(self) -> None:
+        self.filas: list[tuple] = []
+        self._ultimo = None
+
+    def execute(self, sql, params=()):
+        if "SELECT" in sql:
+            proceso_id, fuente_id, referencia = params
+            self._ultimo = next(
+                ({"id": 1} for f in self.filas
+                 if (f[0], f[1], f[2]) == (proceso_id, fuente_id, referencia)),
+                None,
+            )
+        else:
+            proceso_id, fuente_id, referencia, _titulo, _fecha, url = params[:6]
+            if any((f[1], f[2], f[5]) == (fuente_id, referencia, url) for f in self.filas):
+                raise RuntimeError("uq_publicaciones_fuente_ref_url")
+            self.filas.append((proceso_id, fuente_id, referencia, _titulo, _fecha, url))
+            self._ultimo = {"id": len(self.filas)}
+
+    def fetchone(self):
+        return self._ultimo
+
+
+class PublicacionAdcEnVariasBolsasTest(unittest.TestCase):
+    ADC = {"id_emp": 114552, "numero_adc": "204/26", "url": "https://sede.gva.es/x?id_emp=114552",
+           "etapa_actual_gva": "Anuncio", "fechas_publicacion": ["2026-10-08"],
+           "evidencia_relacion": "PDF_OFICIAL", "bolsas_relacionadas": ["790-B", "691-B"]}
+
+    def test_cada_bolsa_relacionada_recibe_su_novedad_sin_chocar(self) -> None:
+        cur = _CursorPublicaciones()
+        resultados = [
+            _publicacion_adc_en_bolsa(cur, bolsa_id=b, fuente_id=11, adc=self.ADC, huella="h")
+            for b in (66, 56, 45)
+        ]
+        self.assertEqual(resultados, [True, True, True])
+        self.assertEqual(len({f[2] for f in cur.filas}), 3)
+
+    def test_repetir_la_ejecucion_no_duplica(self) -> None:
+        cur = _CursorPublicaciones()
+        for _ in range(2):
+            _publicacion_adc_en_bolsa(cur, bolsa_id=66, fuente_id=11, adc=self.ADC, huella="h")
+        self.assertEqual(len(cur.filas), 1)
 
 
 if __name__ == "__main__":

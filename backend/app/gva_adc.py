@@ -681,7 +681,10 @@ def _publicacion_adc_en_bolsa(
     import hashlib
 
     digest = hashlib.sha256(huella.encode("utf-8")).hexdigest()[:16]
-    referencia = f"ADC:{adc['id_emp']}:{digest}"
+    # La tabla exige (fuente, referencia, url) único en TODA la tabla y el
+    # enlace del ADC es el mismo para todas sus bolsas: la referencia lleva la
+    # bolsa para que cada bolsa relacionada tenga su propia novedad.
+    referencia = f"ADC:{adc['id_emp']}:{digest}:B{bolsa_id}"
     cursor.execute(
         """
         SELECT id
