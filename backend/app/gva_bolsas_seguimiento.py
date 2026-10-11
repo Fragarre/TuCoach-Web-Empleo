@@ -402,7 +402,10 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
                 # Las bolsas GVA directas se comparan por una instantánea estable
                 # de su ficha oficial, sin inventar referencia estatal.
                 resultados[int(proceso["id"])] = _estado_ficha_gva_directa(client, proceso)
-            except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
+            # TransportError cubre tiempo de espera, red y protocolo (p. ej. «Server
+            # disconnected without sending a response»): una ficha caída no debe
+            # abortar el seguimiento de las demás bolsas.
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                 errores.append({
                     "proceso_id": int(proceso["id"]),
                     "error": f"{type(exc).__name__}: {exc}",
