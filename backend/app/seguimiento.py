@@ -284,31 +284,31 @@ def ids_novedades_seguimiento() -> set[tuple[str, int]]:
             return {(str(tipo), int(novedad_id)) for tipo, novedad_id in cursor.fetchall()}
 
 
-def usuarios_con_novedades_nuevas(
+def novedades_por_usuario(
     novedades_antes: set[tuple[str, int]],
-) -> set[UUID]:
-    """Devuelve usuarios con novedades nuevas respetando el acceso privado."""
+) -> dict[UUID, set[tuple[str, int]]]:
+    """Novedades nuevas por seguidor, respetando el acceso privado."""
     nuevas = ids_novedades_seguimiento() - novedades_antes
     if not nuevas:
-        return set()
+        return {}
 
     publicaciones = [novedad_id for tipo, novedad_id in nuevas if tipo == "PUBLICACION"]
     cambios = [novedad_id for tipo, novedad_id in nuevas if tipo == "CAMBIO"]
-    usuarios: set[UUID] = set()
+    resultado: dict[UUID, set[tuple[str, int]]] = {}
 
-    def admitir_filas(filas: list[tuple[Any, ...]]) -> None:
-        for user_id_raw, tipo_proceso, categoria_gva in filas:
+    def admitir_filas(tipo: str, filas: list[tuple[Any, ...]]) -> None:
+        for user_id_raw, novedad_id, tipo_proceso, categoria_gva in filas:
             user_id = UUID(str(user_id_raw))
             privado = es_categoria_empleo_privada(tipo_proceso, categoria_gva)
             if not privado or puede_acceder_categoria_privada(user_id):
-                usuarios.add(user_id)
+                resultado.setdefault(user_id, set()).add((tipo, int(novedad_id)))
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if publicaciones:
                 cursor.execute(
                     """
-                    SELECT DISTINCT s.user_id, p.tipo_proceso,
+                    SELECT DISTINCT s.user_id, pub.id, p.tipo_proceso,
                            p.datos_json->>'categoria_gva'
                     FROM publicaciones pub
                     JOIN procesos p ON p.id = pub.proceso_id
@@ -321,12 +321,12 @@ def usuarios_con_novedades_nuevas(
                     """,
                     (publicaciones,),
                 )
-                admitir_filas(cursor.fetchall())
+                admitir_filas("PUBLICACION", cursor.fetchall())
 
             if cambios:
                 cursor.execute(
                     """
-                    SELECT DISTINCT s.user_id, p.tipo_proceso,
+                    SELECT DISTINCT s.user_id, c.id, p.tipo_proceso,
                            p.datos_json->>'categoria_gva'
                     FROM cambios c
                     JOIN procesos p ON p.id = c.proceso_id
@@ -342,9 +342,83 @@ def usuarios_con_novedades_nuevas(
                     """,
                     (cambios, list(CAMPOS_CAMBIO_RELEVANTES)),
                 )
-                admitir_filas(cursor.fetchall())
+                admitir_filas("CAMBIO", cursor.fetchall())
 
-    return usuarios
+    return resultado
+
+
+def usuarios_con_novedades_nuevas(
+    novedades_antes: set[tuple[str, int]],
+) -> set[UUID]:
+    """Usuarios con novedades nuevas (compatibilidad)."""
+    return set(novedades_por_usuario(novedades_antes))
+
+
+def usuarios_de_pago(user_ids: set[UUID]) -> set[UUID]:
+    """Subconjunto con suscripción comercial vigente, o usuario de prueba/admin."""
+    if not user_ids:
+        return set()
+    from .notificaciones_generales import destinatarios_generales
+
+    permitidos = {UUID(str(uid)) for uid, _email in destinatarios_generales()}
+    return {u for u in user_ids if u in permitidos}
+
+
+def registrar_avisos_seguimiento(
+    por_usuario: dict[UUID, set[tuple[str, int]]],
+) -> int:
+    """Guarda en la cola las novedades por avisar. Idempotente."""
+    creados = 0
+    if not por_usuario:
+        return 0
+    with get_connection() as connection, connection.cursor() as cursor:
+        for user_id, novedades in por_usuario.items():
+            for tipo, novedad_id in sorted(novedades):
+                cursor.execute(
+                    """
+                    INSERT INTO empleo_avisos_seguimiento (user_id, novedad_tipo, novedad_id)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, novedad_tipo, novedad_id) DO NOTHING
+                    """,
+                    (str(user_id), tipo, novedad_id),
+                )
+                creados += cursor.rowcount
+        connection.commit()
+    return creados
+
+
+DIAS_REINTENTO_AVISOS = 3
+
+
+def _usuarios_con_avisos_pendientes() -> dict[UUID, list[int]]:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT user_id, id FROM empleo_avisos_seguimiento
+            WHERE estado = 'PENDIENTE'
+              AND created_at > NOW() - make_interval(days => %s)
+            ORDER BY id
+            """,
+            (DIAS_REINTENTO_AVISOS,),
+        )
+        pendientes: dict[UUID, list[int]] = {}
+        for user_id_raw, aviso_id in cursor.fetchall():
+            pendientes.setdefault(UUID(str(user_id_raw)), []).append(int(aviso_id))
+        return pendientes
+
+
+def _marcar_avisos(ids: list[int], estado: str, error: str | None = None) -> None:
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE empleo_avisos_seguimiento
+            SET estado = %s, error = %s,
+                enviado_at = CASE WHEN %s = 'ENVIADA' THEN NOW() ELSE enviado_at END
+            WHERE id = ANY(%s) AND estado = 'PENDIENTE'
+            """,
+            (estado, error, estado, ids),
+        )
+        connection.commit()
 
 
 def emails_usuarios(user_ids: set[UUID]) -> dict[UUID, str]:
@@ -378,29 +452,35 @@ def emails_usuarios(user_ids: set[UUID]) -> dict[UUID, str]:
 def enviar_avisos_novedades(
     novedades_antes: set[tuple[str, int]],
 ) -> dict[str, int]:
-    """Envía un único correo por usuario con novedades nuevas en este ciclo."""
-    usuarios = usuarios_con_novedades_nuevas(novedades_antes)
+    """Cola las novedades nuevas y envía un correo por seguidor de pago.
 
-    if not usuarios:
-        return {"usuarios_con_novedades": 0, "enviados": 0, "errores": 0}
+    Los avisos fallidos quedan pendientes y se reintentan en los siguientes
+    ciclos durante DIAS_REINTENTO_AVISOS días.
+    """
+    por_usuario = novedades_por_usuario(novedades_antes)
+    registrados = registrar_avisos_seguimiento(por_usuario)
 
-    emails = emails_usuarios(usuarios)
-    public_app_url = os.getenv(
-        "PUBLIC_APP_URL",
-        "https://netexamenes.com",
-    ).strip().rstrip("/")
+    pendientes = _usuarios_con_avisos_pendientes()
+    if not pendientes:
+        return {"usuarios_con_novedades": 0, "avisos_registrados": registrados,
+                "enviados": 0, "errores": 0, "sin_pago": 0}
+
+    de_pago = usuarios_de_pago(set(pendientes))
+    sin_pago = set(pendientes) - de_pago
+    for user_id in sin_pago:
+        _marcar_avisos(pendientes[user_id], "DESCARTADA", "Sin suscripción vigente")
+
+    emails = emails_usuarios(de_pago)
+    public_app_url = os.getenv("PUBLIC_APP_URL", "https://netexamenes.com").strip().rstrip("/")
     url = f"{public_app_url}/empleo/seguimiento"
 
     enviados = 0
     errores = 0
-
-    for user_id in usuarios:
+    for user_id in de_pago:
         email = emails.get(user_id)
         try:
             if not email:
                 raise RuntimeError("No se encontró email activo para el usuario")
-
-            asunto = "Tu Coach — Novedades en tus convocatorias"
             texto = (
                 "Hay novedades en una o varias de las oportunidades que sigues.\n\n"
                 f"Consúltalas aquí: {url}"
@@ -409,20 +489,27 @@ def enviar_avisos_novedades(
                 "<p>Hay novedades en una o varias de las oportunidades que sigues.</p>"
                 f'<p><a href="{escape(url, quote=True)}">Consultar mis novedades</a></p>'
             )
-
             enviar_email(
                 destinatario=email,
-                asunto=asunto,
+                asunto="Tu Coach — Novedades en tus convocatorias",
                 html=html,
                 texto=texto,
             )
+            _marcar_avisos(pendientes[user_id], "ENVIADA")
             enviados += 1
-        except Exception:
+        except Exception as exc:
+            with get_connection() as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE empleo_avisos_seguimiento SET error=%s WHERE id = ANY(%s) AND estado='PENDIENTE'",
+                    (f"{type(exc).__name__}: {exc}"[:2000], pendientes[user_id]),
+                )
+                connection.commit()
             errores += 1
 
     return {
-        "usuarios_con_novedades": len(usuarios),
+        "usuarios_con_novedades": len(de_pago),
+        "avisos_registrados": registrados,
         "enviados": enviados,
         "errores": errores,
+        "sin_pago": len(sin_pago),
     }
-

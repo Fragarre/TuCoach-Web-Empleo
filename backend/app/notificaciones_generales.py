@@ -14,7 +14,7 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 
-from access import es_categoria_empleo_privada, puede_acceder_categoria_privada
+from access import PRIVATE_EMPLOYMENT_USER_IDS, es_categoria_empleo_privada, puede_acceder_categoria_privada
 from .database import get_connection
 from .email_sender import enviar_email
 from .procesos import _condiciones_catalogo
@@ -47,9 +47,10 @@ def destinatarios_generales() -> list[tuple[UUID, str]]:
                 SELECT p.id AS user_id, p.email
                 FROM public.profiles p
                 WHERE p.activo = TRUE
-                  AND LOWER(TRIM(COALESCE(p.email, ''))) = %s
+                  AND (LOWER(TRIM(COALESCE(p.email, ''))) = %s OR p.id = ANY(%s::uuid[]))
                 """,
-                (list(ESTADOS_COMERCIALES), EMAIL_PRUEBA),
+                (list(ESTADOS_COMERCIALES), EMAIL_PRUEBA,
+                 [str(u) for u in PRIVATE_EMPLOYMENT_USER_IDS]),
             )
             return [(row["user_id"], str(row["email"]).strip()) for row in cursor.fetchall()]
 
@@ -169,13 +170,82 @@ def registrar_nuevas_oportunidades(proceso_ids: Iterable[int]) -> list[int]:
         connection.commit()
     return creados
 
-def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
-    """Envía las notificaciones generales pendientes de nuevas oportunidades."""
+MAX_ITEMS_RESUMEN = 40
+
+
+def _datos_oportunidad(fila: dict) -> list[tuple[str, object]]:
+    """Datos mostrados de una oportunidad en el correo."""
+    datos_json = fila.get("datos_json") or {}
+    es_adc = fila.get("tipo_proceso") == "Anuncio difícil cobertura (ADC)"
+    datos = [
+        ("Organismo", fila["organismo"]),
+        ("Provincia", fila["provincia"]),
+        ("Plazas", fila["plazas"]),
+        ("Sistema selectivo", fila["sistema_selectivo"]),
+        ("Fecha de convocatoria", fila["fecha_convocatoria"]),
+        ("Apertura del plazo", fila["fecha_apertura"]),
+        ("Cierre del plazo", fila["fecha_cierre"]),
+    ]
+    if es_adc:
+        bolsas = datos_json.get("bolsas_relacionadas") or []
+        datos.extend([
+            ("ADC", datos_json.get("numero_adc")),
+            ("Cuerpo", fila.get("cuerpo_escala")),
+            ("Etapa actual", datos_json.get("etapa_actual_gva")),
+            ("Bolsas relacionadas", ", ".join(str(x) for x in bolsas) if bolsas else None),
+        ])
+    return [(e, v) for e, v in datos if v is not None and str(v).strip()]
+
+
+def componer_resumen(filas: list[dict], public_app_url: str) -> tuple[str, str, str]:
+    """Asunto, texto y html de UN correo con todas las oportunidades nuevas."""
+    total = len(filas)
+    asunto = (
+        f"Nueva oportunidad de empleo: {filas[0]['denominacion']}"
+        if total == 1
+        else f"{total} nuevas oportunidades de empleo"
+    )
+    intro = (
+        "Se ha publicado una nueva oportunidad de empleo."
+        if total == 1
+        else f"Se han publicado {total} nuevas oportunidades de empleo."
+    )
+    texto = [intro, ""]
+    html = [f"<p>{escape(intro)}</p>"]
+    for fila in filas[:MAX_ITEMS_RESUMEN]:
+        url = f"{public_app_url}/empleo/proceso/{int(fila['proceso_id'])}"
+        denominacion = str(fila["denominacion"])
+        datos = _datos_oportunidad(fila)
+        es_adc = fila.get("tipo_proceso") == "Anuncio difícil cobertura (ADC)"
+        url_oficial = (fila.get("datos_json") or {}).get("url_detalle") if es_adc else None
+        texto += [denominacion, *[f"{e}: {v}" for e, v in datos], f"Ver convocatoria: {url}"]
+        if url_oficial:
+            texto.append(f"Acceso oficial GVA: {url_oficial}")
+        texto.append("")
+        items = "".join(
+            f"<li><strong>{escape(e)}:</strong> {escape(str(v))}</li>" for e, v in datos
+        )
+        html.append(
+            f"<p><strong>{escape(denominacion)}</strong></p><ul>{items}</ul>"
+            f'<p><a href="{escape(url)}">Ver convocatoria</a></p>'
+            + (f'<p><a href="{escape(str(url_oficial))}">Acceso oficial GVA</a></p>' if url_oficial else "")
+        )
+    if total > MAX_ITEMS_RESUMEN:
+        resto = total - MAX_ITEMS_RESUMEN
+        enlace = f"{public_app_url}/empleo"
+        texto.append(f"... y {resto} más: {enlace}")
+        html.append(f'<p>... y {resto} más: <a href="{escape(enlace)}">ver todas en Empleo</a></p>')
+    return asunto, "\n".join(texto), "".join(html)
+
+
+def enviar_envios_pendientes(*, limite: int = 2000) -> dict[str, int]:
+    """Envía un único correo por usuario con todas sus oportunidades pendientes."""
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
             """
             SELECT
                 en.id,
+                en.user_id,
                 en.email,
                 e.proceso_id,
                 p.denominacion,
@@ -194,6 +264,7 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
             JOIN procesos p ON p.id = e.proceso_id
             JOIN organismos o ON o.id = p.organismo_id
             WHERE en.estado = 'PENDIENTE'
+              AND en.created_at > NOW() - INTERVAL '3 days'
               AND e.tipo = %s
             ORDER BY en.created_at, en.id
             LIMIT %s
@@ -203,110 +274,43 @@ def enviar_envios_pendientes(*, limite: int = 100) -> dict[str, int]:
         pendientes = list(cursor.fetchall())
 
     if not pendientes:
-        return {"procesadas": 0, "enviadas": 0, "errores": 0}
+        return {"procesadas": 0, "enviadas": 0, "errores": 0, "correos": 0}
 
     public_app_url = os.getenv("PUBLIC_APP_URL", "https://netexamenes.com").rstrip("/")
-    enviadas = 0
-    errores = 0
+    grupos: dict[tuple[str, str], list[dict]] = {}
+    for fila in pendientes:
+        grupos.setdefault((str(fila["user_id"]), str(fila["email"])), []).append(fila)
 
-    for pendiente in pendientes:
-        envio_id = int(pendiente["id"])
-        proceso_id = int(pendiente["proceso_id"])
-        denominacion = str(pendiente["denominacion"])
-        url = f"{public_app_url}/empleo/proceso/{proceso_id}"
-
-        datos_json = pendiente.get("datos_json") or {}
-        es_adc = pendiente.get("tipo_proceso") == "Anuncio difícil cobertura (ADC)"
-        datos = [
-            ("Organismo", pendiente["organismo"]),
-            ("Provincia", pendiente["provincia"]),
-            ("Plazas", pendiente["plazas"]),
-            ("Sistema selectivo", pendiente["sistema_selectivo"]),
-            ("Fecha de convocatoria", pendiente["fecha_convocatoria"]),
-            ("Apertura del plazo", pendiente["fecha_apertura"]),
-            ("Cierre del plazo", pendiente["fecha_cierre"]),
-        ]
-        if es_adc:
-            bolsas = datos_json.get("bolsas_relacionadas") or []
-            datos.extend([
-                ("ADC", datos_json.get("numero_adc")),
-                ("Cuerpo", pendiente.get("cuerpo_escala")),
-                ("Etapa actual", datos_json.get("etapa_actual_gva")),
-                ("Bolsas relacionadas", ", ".join(str(x) for x in bolsas) if bolsas else None),
-            ])
-        lineas = [
-            f"{etiqueta}: {valor}"
-            for etiqueta, valor in datos
-            if valor is not None and str(valor).strip()
-        ]
-
-        asunto = f"Nueva oportunidad de empleo: {denominacion}"
-        url_oficial = datos_json.get("url_detalle") if es_adc else None
-        texto = "\n".join(
-            [
-                "Se ha publicado una nueva oportunidad de empleo.",
-                "",
-                denominacion,
-                *lineas,
-                "",
-                f"Ver convocatoria: {url}",
-                *([f"Acceso oficial GVA: {url_oficial}"] if url_oficial else []),
-            ]
-        )
-        html_datos = "".join(
-            f"<li><strong>{escape(etiqueta)}:</strong> {escape(str(valor))}</li>"
-            for etiqueta, valor in datos
-            if valor is not None and str(valor).strip()
-        )
-        html = (
-            "<p>Se ha publicado una nueva oportunidad de empleo.</p>"
-            f"<p><strong>{escape(denominacion)}</strong></p>"
-            f"<ul>{html_datos}</ul>"
-            f'<p><a href="{escape(url)}">Ver convocatoria</a></p>'
-            + (f'<p><a href="{escape(str(url_oficial))}">Acceso oficial GVA</a></p>' if url_oficial else "")
-        )
-
+    enviadas = errores = correos = 0
+    for (_user, email), filas in grupos.items():
+        ids = [int(f["id"]) for f in filas]
+        asunto, texto, html = componer_resumen(filas, public_app_url)
         try:
-            resultado = enviar_email(
-                destinatario=str(pendiente["email"]),
-                asunto=asunto,
-                html=html,
-                texto=texto,
-            )
+            resultado = enviar_email(destinatario=email, asunto=asunto, html=html, texto=texto)
             with get_connection() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
                     UPDATE empleo_envios_notificacion
-                    SET estado = 'ENVIADA',
-                        proveedor_message_id = %s,
-                        enviado_at = NOW(),
-                        error = NULL,
-                        updated_at = NOW()
-                    WHERE id = %s
-                      AND estado = 'PENDIENTE'
+                    SET estado = 'ENVIADA', proveedor_message_id = %s,
+                        enviado_at = NOW(), error = NULL, updated_at = NOW()
+                    WHERE id = ANY(%s) AND estado = 'PENDIENTE'
                     """,
-                    (resultado.message_id, envio_id),
+                    (resultado.message_id, ids),
                 )
                 connection.commit()
-            enviadas += 1
+            enviadas += len(ids)
+            correos += 1
         except Exception as exc:
             with get_connection() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """
                     UPDATE empleo_envios_notificacion
-                    SET estado = 'ERROR',
-                        error = %s,
-                        updated_at = NOW()
-                    WHERE id = %s
-                      AND estado = 'PENDIENTE'
+                    SET error = %s, updated_at = NOW()
+                    WHERE id = ANY(%s) AND estado = 'PENDIENTE'
                     """,
-                    (f"{type(exc).__name__}: {exc}"[:2000], envio_id),
+                    (f"{type(exc).__name__}: {exc}"[:2000], ids),
                 )
                 connection.commit()
-            errores += 1
+            errores += len(ids)
 
-    return {
-        "procesadas": len(pendientes),
-        "enviadas": enviadas,
-        "errores": errores,
-    }
+    return {"procesadas": len(pendientes), "enviadas": enviadas, "errores": errores, "correos": correos}
