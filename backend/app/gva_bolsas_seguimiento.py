@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 import httpx
@@ -63,16 +64,46 @@ ESTADO_BOLSA_CERRADA = "FINALIZADO"
 ORIGEN_CIERRE_FASE = "FASE_GVA"
 
 
+def _normalizar(texto: Any) -> str:
+    plano = unicodedata.normalize("NFD", str(texto or ""))
+    plano = "".join(c for c in plano if unicodedata.category(c) != "Mn")
+    return " ".join(plano.lower().split())
+
+
+def fase_en_funcionamiento(fase: Any) -> bool:
+    """«Bolsa en funcionamiento» en castellano o «Borsa en funcionament» en valenciano.
+
+    La ficha puede venir en cualquiera de las dos lenguas y el campo de fase suele
+    arrastrar texto detrás (plazos, enlaces), así que se busca la expresión al
+    principio del texto en lugar de exigir igualdad exacta.
+    """
+    inicio = _normalizar(fase)[:80]
+    return "en funcionamiento" in inicio or "en funcionament" in inicio
+
+
 def bolsa_ya_no_funciona(estado_actual: dict[str, Any] | None) -> bool:
-    """Una bolsa GVA está activa mientras su ficha dice «Bolsa en funcionamiento».
+    """Una bolsa GVA está activa mientras su ficha dice que está en funcionamiento.
 
     Solo se considera inactiva si la ficha informa de otra fase. Si la fase no
     se pudo leer (ficha cambiada, error de lectura), no se cierra nada.
     """
     if not isinstance(estado_actual, dict):
         return False
-    fase = " ".join(str(estado_actual.get("fase_gva") or "").split())
-    return bool(fase) and not estado_actual.get("bolsa_en_funcionamiento")
+    fase = _normalizar(estado_actual.get("fase_gva"))
+    return bool(fase) and not fase_en_funcionamiento(fase)
+
+
+def debe_cerrar_bolsa(accion: dict[str, Any]) -> bool:
+    """Cierra solo si la ficha lleva DOS lecturas seguidas fuera de funcionamiento.
+
+    Una única lectura (primera carga, ficha en otro idioma, página a medias) no
+    basta: un fallo de lectura cerraría bolsas vigentes.
+    """
+    return (
+        str(accion.get("accion", "")).endswith("_GVA_DIRECTO")
+        and bolsa_ya_no_funciona(accion.get("estado_actual"))
+        and bolsa_ya_no_funciona(accion.get("estado_anterior"))
+    )
 
 
 def _cerrar_bolsa_por_fase(cursor, accion: dict[str, Any], *, notificable: bool) -> bool:
@@ -121,7 +152,6 @@ def _estado_ficha_gva_directa(client: httpx.Client, proceso: dict[str, Any]) -> 
     pub = parsed.get("publicacion") or {}
     metadatos = parsed.get("datos_json") or {}
     fase = metadatos.get("fase_gva")
-    fase_normalizada = " ".join(str(fase or "").lower().split())
     return {
         "fuente": "sede.gva.es",
         "id_emp": id_emp,
@@ -131,7 +161,7 @@ def _estado_ficha_gva_directa(client: httpx.Client, proceso: dict[str, Any]) -> 
         "estado_etapa": parsed.get("estado"),
         "etapa_actual_gva": metadatos.get("etapa_actual_gva"),
         "fase_gva": fase,
-        "bolsa_en_funcionamiento": fase_normalizada == "bolsa en funcionamiento",
+        "bolsa_en_funcionamiento": fase_en_funcionamiento(fase),
         "fecha_apertura": str(parsed.get("fecha_apertura")) if parsed.get("fecha_apertura") else None,
         "fecha_cierre": str(parsed.get("fecha_cierre")) if parsed.get("fecha_cierre") else None,
     }
@@ -151,7 +181,7 @@ def _planificar_gva_directa(proceso: dict[str, Any], actual: dict[str, Any]) -> 
     if not isinstance(anterior, dict) or not anterior.get("contenido_hash"):
         return {**base, "accion": "BASELINE_GVA_DIRECTO", "estado_anterior": anterior}
     if anterior.get("contenido_hash") == actual.get("contenido_hash"):
-        return {**base, "accion": "SIN_CAMBIOS_GVA_DIRECTO"}
+        return {**base, "accion": "SIN_CAMBIOS_GVA_DIRECTO", "estado_anterior": anterior}
 
     # El hash cubre la página completa y puede variar por ruido de presentación.
     # Solo una variación en campos funcionales de la bolsa es notificable.
@@ -415,14 +445,7 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         _, fuente_dogv_id = _resolver_identidad_gva(cursor)
         for accion in plan["acciones"]:
-            if (
-                str(accion.get("accion", "")).endswith("_GVA_DIRECTO")
-                and bolsa_ya_no_funciona(accion.get("estado_actual"))
-                # La primera lectura de una bolsa (línea base) es silenciosa.
-                and _cerrar_bolsa_por_fase(
-                    cursor, accion, notificable=accion["accion"] != "BASELINE_GVA_DIRECTO"
-                )
-            ):
+            if debe_cerrar_bolsa(accion) and _cerrar_bolsa_por_fase(cursor, accion, notificable=True):
                 procesos_finalizados += 1
             if accion["accion"] == "BASELINE_GVA_DIRECTO":
                 # Línea base silenciosa: evita notificar como novedad el estado
