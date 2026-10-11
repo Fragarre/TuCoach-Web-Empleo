@@ -44,6 +44,47 @@ def _sin(texto: str | None) -> str:
     )
 
 
+# Números escritos con letras (castellano y valenciano) que aparecen en los
+# plazos: "veinte días hábiles", "deu dies hàbils", "cuarenta y cinco días".
+# Se consultan ya normalizados (sin tildes, minúsculas).
+_NUMEROS_PLAZO: dict[str, int] = {
+    "un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "quatre": 4,
+    "cinco": 5, "cinc": 5, "seis": 6, "sis": 6, "siete": 7, "set": 7,
+    "ocho": 8, "vuit": 8, "nueve": 9, "nou": 9, "diez": 10, "deu": 10,
+    "once": 11, "onze": 11, "doce": 12, "dotze": 12, "trece": 13, "tretze": 13,
+    "catorce": 14, "catorze": 14, "quince": 15, "quinze": 15,
+    "dieciseis": 16, "setze": 16, "diecisiete": 17, "disset": 17,
+    "dieciocho": 18, "divuit": 18, "diecinueve": 19, "dinou": 19,
+    "veinte": 20, "vint": 20, "veintiuno": 21, "veintiun": 21, "veintidos": 22,
+    "veintitres": 23, "veinticuatro": 24, "veinticinco": 25, "veintiseis": 26,
+    "veintisiete": 27, "veintiocho": 28, "veintinueve": 29,
+    "treinta": 30, "trenta": 30, "cuarenta": 40, "quaranta": 40,
+    "cincuenta": 50, "cinquanta": 50, "sesenta": 60, "seixanta": 60,
+}
+
+
+def _numero_palabras(frase: str) -> int | None:
+    """"cuarenta y cinco" -> 45; None si alguna palabra no se conoce."""
+    total = 0
+    for parte in re.split(r"\s+(?:y|i)\s+", frase.strip()):
+        valor = _NUMEROS_PLAZO.get(parte)
+        if valor is None:
+            return None
+        total += valor
+    return total or None
+
+
+def numero_dias_literal(literal: str | None) -> int | None:
+    """Número de días de un plazo ("20 días", "veinte días", "cuarenta y cinco
+    días"), o None si no se puede interpretar."""
+    n = _sin(literal)
+    m = re.search(r"\b(\d+)\s+(?:dias?|dies)\b", n)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"\b((?:[a-z]+\s+(?:y|i)\s+)?[a-z]+)\s+(?:dias?|dies)\b", n)
+    return _numero_palabras(m.group(1)) if m else None
+
+
 def es_bolsa(tipo_proceso: str | None) -> bool:
     return _ciclo.es_bolsa(tipo_proceso)
 
@@ -58,15 +99,9 @@ def _dias_habiles_literal(literal: str) -> int | None:
     # Cuando la convocatoria no precisa el tipo de día, el criterio del
     # catálogo es tratarlo como hábil. Si indica "naturales", se conserva
     # literalmente para no recalcularlo como hábil.
-    if re.search(r"\bdias?\s+naturales?\b", normalizado, re.I):
+    if re.search(r"\bdias?\s+naturales?\b|\bdies\s+naturals\b", normalizado, re.I):
         return None
-    m = re.search(r"\b(\d+)\s+dias?(?:\s+habiles)?\b", normalizado, re.I)
-    if m:
-        return int(m.group(1))
-    m = re.search(r"\b([a-z]+)\s+dias?(?:\s+habiles)?\b", normalizado, re.I)
-    if m:
-        return _NUMEROS_PLAZO.get(m.group(1))
-    return None
+    return numero_dias_literal(literal)
 
 
 def _calcular_cierre_habiles(fecha_boe: date, dias: int, organismo: str | None) -> date | None:
@@ -147,10 +182,24 @@ def estado_inscripcion(proceso: dict[str, Any], *, hoy: date | None = None) -> d
 
     if apertura and cierre:
         if hoy < apertura:
-            return {"codigo": "PENDIENTE_APERTURA", "fecha_apertura": apertura, "fecha_cierre": cierre}
-        if hoy <= cierre:
-            return {"codigo": "ABIERTO", "fecha_apertura": apertura, "fecha_cierre": cierre}
-        return {"codigo": "CERRADO", "fecha_apertura": apertura, "fecha_cierre": cierre}
+            codigo = "PENDIENTE_APERTURA"
+        elif hoy <= cierre:
+            codigo = "ABIERTO"
+        else:
+            codigo = "CERRADO"
+        resultado = {"codigo": codigo, "fecha_apertura": apertura, "fecha_cierre": cierre}
+        # Si las fechas se calcularon a partir del BOE (plazos_inscripcion), la
+        # web debe seguir avisando de que es un cálculo sin festivos locales.
+        marca = (proceso.get("datos_json") or {}).get("plazo_inscripcion") if isinstance(proceso.get("datos_json"), dict) else None
+        if isinstance(marca, dict) and marca.get("origen") == "BOE_CALCULADO":
+            resultado.update({
+                "fecha_cierre_calculada": True,
+                "calendario_aplicado": marca.get("calendario"),
+                "calendario_verificado": bool(marca.get("calendario_verificado")),
+                "dias_habiles": marca.get("dias") if marca.get("tipo_dias") == "HABILES" else None,
+                "literal": marca.get("literal"),
+            })
+        return resultado
 
     datos = proceso.get("datos_json") or {}
     agregados = datos.get("boe_local_agregados")

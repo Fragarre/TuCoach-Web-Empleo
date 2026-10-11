@@ -25,6 +25,7 @@ from .ciclos import (
     ultimos_exitos,
 )
 from .festivos import hoy_es
+from .plazos_inscripcion import sincronizar_plazos_inscripcion
 from .reconciliar_cierres import reconciliar_cierres
 
 
@@ -335,6 +336,14 @@ def _ejecutar_ciclo(
                 ordenar_por_reciente=True,
             ),
         )
+
+    # Guarda fecha_apertura/fecha_cierre de las convocatorias locales a partir
+    # del BOE (N días hábiles desde el siguiente a su publicación). Solo informa
+    # del plazo de inscripción: un plazo vencido NO cierra la convocatoria.
+    registrar(
+        "plazos_inscripcion",
+        lambda: sincronizar_plazos_inscripcion(aplicar=aplicar),
+    )
 
     # Da de baja todo proceso cuyo resultado final ya consta en publicaciones,
     # provenga de la fuente que provenga. Va después de todas las fuentes para
