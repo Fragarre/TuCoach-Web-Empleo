@@ -29,11 +29,14 @@ def _signatura_dogv(url: str | None) -> str | None:
 
 
 def sede_fuera_de_servicio(html: str | None) -> bool:
-    """True si la respuesta es la página de mantenimiento de la Sede (no una ficha ni un listado)."""
-    texto = html or ""
-    if len(texto) > 30000 or "id_emp=" in texto:
+    """True si la respuesta es la página de mantenimiento de la Sede (no una ficha ni un listado).
+
+    Se mira el TEXTO VISIBLE: la página de mantenimiento real pesa ~35 KB por su
+    plantilla, así que el tamaño del HTML no sirve de criterio."""
+    if not html or not re.search(r"fuera\s+de\s+servicio|fora\s+de\s+servei", html, re.I):
         return False
-    return bool(re.search(r"fuera\s+de\s+servicio|fora\s+de\s+servei", texto, re.I))
+    visible = " ".join(BeautifulSoup(html, "html.parser").get_text(" ", strip=True).split())
+    return bool(re.match(r"\W*aplicaci[oó]n\s+fuera\s+de\s+servicio|\W*aplicaci[oó]\s+fora\s+de\s+servei", visible, re.I))
 
 
 def _get_gva_con_reintentos(

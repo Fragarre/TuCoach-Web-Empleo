@@ -19,6 +19,18 @@ def test_detecta_pagina_de_mantenimiento():
     assert not svc.sede_fuera_de_servicio("<html>Listado normal</html>")
 
 
+def test_detecta_pagina_de_mantenimiento_grande_real():
+    relleno = "<div class='plantilla'>" + ("x " * 17000) + "</div>"
+    html = "<html><body><h1>\ufeff Aplicación fuera de servicio</h1><p>Aquesta aplicació està temporalment fora de servei</p>" + relleno + "</body></html>"
+    assert len(html) > 30000
+    assert svc.sede_fuera_de_servicio(html)
+
+
+def test_ficha_normal_que_menciona_el_texto_al_final_no_es_mantenimiento():
+    html = "<html><body><h1>Bolsa de trabajo Educación</h1>" + ("texto " * 100) + "<p>aviso: servicio fuera de servicio un dia</p></body></html>"
+    assert not svc.sede_fuera_de_servicio(html)
+
+
 def test_reintenta_y_se_recupera(monkeypatch):
     monkeypatch.setattr(svc.time, "sleep", lambda s: None)
     c = _Cliente(["<h1>Aplicación fuera de servicio</h1>", "<html>ok</html>"])
