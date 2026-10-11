@@ -9,7 +9,7 @@ devolvía 0 resultados sin avisar. Aquí:
   etapa/fase actual y decidir si el proceso sigue ACTIVO o ya está RESUELTO
   (misma definición única de ``ciclo_vida``);
 * solo se insertan procesos activos del ámbito administrativo (cuerpos
-  A1/A2/C1/C2-01, turno libre); los ya resueltos nunca se insertan, y los que
+  A1/A2/C1/C2-01, turno libre o promoción interna); los ya resueltos nunca se insertan, y los que
   tenemos EN_CURSO se cierran cuando su ficha acredita la resolución.
 
 Los parsers y reglas son puros (sin red ni BD) y se prueban con HTML guardado.
@@ -38,6 +38,7 @@ BASE_URL = "https://sede.gva.es"
 URL_LISTADO = "https://sede.gva.es/es/cercador-ocupacio-publica"
 GRUPOS_ADMIN = "1029,1030,1032,1033"  # A1, A2, C1, C2
 MAX_PAGINAS = 12
+MAX_CONSULTAS_RANGO = 40
 MAX_FICHAS_POR_EJECUCION = 120
 PAUSA_ENTRE_PETICIONES = 0.4
 
@@ -140,7 +141,10 @@ def parsear_listado(html: str) -> dict[str, Any]:
         raise EstructuraInesperada("el listado no indica el total de resultados")
     if total > 0 and not tarjetas:
         raise EstructuraInesperada(f"el listado indica {total} resultados pero no se pudo leer ninguna tarjeta")
-    return {"total": total, "desde": desde, "hasta": hasta, "tarjetas": tarjetas}
+    # La Sede corta a 100 resultados y lo avisa con un cartel: nunca hay que
+    # fiarse de un listado truncado (se perderían procesos sin ningún error).
+    truncado = bool(re.search(r"demasiados resultados|solo se muestran los \d+ primeros", texto, re.I)) or total >= 100
+    return {"total": total, "desde": desde, "hasta": hasta, "tarjetas": tarjetas, "truncado": truncado}
 
 
 def _parametros_listado(pagina: int, desde: date | None, hasta: date | None) -> dict[str, str]:
@@ -158,12 +162,13 @@ def _parametros_listado(pagina: int, desde: date | None, hasta: date | None) -> 
     return params
 
 
-def descubrir_oposiciones(client, *, desde: date | None, hasta: date | None) -> list[dict[str, Any]]:
-    """Recorre las páginas del listado. Lanza si la Sede responde algo irreconocible."""
+def _recorrer_paginas(client, desde: date | None, hasta: date | None) -> tuple[dict[int, dict[str, Any]], bool]:
     vistas: dict[int, dict[str, Any]] = {}
+    truncado = False
     for pagina in range(1, MAX_PAGINAS + 1):
         respuesta = _get_gva_con_reintentos(client, URL_LISTADO, params=_parametros_listado(pagina, desde, hasta))
         listado = parsear_listado(respuesta.text)
+        truncado = truncado or listado["truncado"]
         for tarjeta in listado["tarjetas"]:
             vistas[tarjeta["id_emp"]] = tarjeta
         total = listado["total"]
@@ -172,7 +177,36 @@ def descubrir_oposiciones(client, *, desde: date | None, hasta: date | None) -> 
         if listado["hasta"] is not None and listado["hasta"] >= total:
             break
         time.sleep(PAUSA_ENTRE_PETICIONES)
-    return sorted(vistas.values(), key=lambda t: t["id_emp"])
+    return vistas, truncado
+
+
+def descubrir_oposiciones(client, *, desde: date | None, hasta: date | None) -> list[dict[str, Any]]:
+    """Recorre el listado. Si la Sede lo trunca (máx. 100 resultados) parte el rango
+    de fechas en dos y repite; si un solo día sigue truncado, falla en alto."""
+    if desde is None or hasta is None:
+        vistas, truncado = _recorrer_paginas(client, desde, hasta)
+        if truncado:
+            raise EstructuraInesperada("la Sede devolvió un listado truncado (máx. 100) y no hay rango de fechas que dividir")
+        return sorted(vistas.values(), key=lambda t: t["id_emp"])
+
+    resultado: dict[int, dict[str, Any]] = {}
+    pendientes = [(desde, hasta)]
+    consultas = 0
+    while pendientes:
+        d, h = pendientes.pop()
+        consultas += 1
+        if consultas > MAX_CONSULTAS_RANGO:
+            raise EstructuraInesperada(f"demasiadas consultas al dividir el rango de fechas ({MAX_CONSULTAS_RANGO})")
+        vistas, truncado = _recorrer_paginas(client, d, h)
+        if truncado:
+            if d >= h:
+                raise EstructuraInesperada(f"la Sede trunca el listado incluso para un solo día ({d.isoformat()})")
+            mitad = d + (h - d) // 2
+            pendientes.append((d, mitad))
+            pendientes.append((mitad + timedelta(days=1), h))
+            continue
+        resultado.update(vistas)
+    return sorted(resultado.values(), key=lambda t: t["id_emp"])
 
 
 # ----------------------------------------------------------------------- ficha --
@@ -305,27 +339,28 @@ def evaluar_cierre(ficha: dict[str, Any], tipo_proceso: str = "Oposición") -> d
 
 
 def clasificar_ambito(titulo: str, convocatoria: str | None = None) -> dict[str, Any]:
-    """¿Es una oposición administrativa general (A1/A2/C1/C2-01) de turno libre?"""
+    """¿Es una oposición administrativa general (A1/A2/C1/C2-01)? Turno libre o promoción interna."""
     n = normalizar(titulo)
     codigos = sorted({m.group(0).upper() for m in _RE_CODIGO_CUERPO.finditer(titulo or "")})
+    turno = "TURNO_LIBRE"
     if "promocion interna" in n or normalizar(convocatoria) == "promocion interna":
-        return {"administrativo": False, "motivo": "promocion_interna", "codigos": codigos}
+        return {"administrativo": False, "motivo": "promocion_interna", "codigos": codigos, "turno": "PROMOCION_INTERNA"}
     especialidad = motivo_especialidad(n)
     if codigos:
         generales = [c for c in codigos if re.fullmatch(r"(A1|A2|C1|C2)-01(?:-[A-Z0-9]+)*", c)]
         if not generales:
-            return {"administrativo": False, "motivo": "cuerpo_no_administrativo_general", "codigos": codigos}
+            return {"administrativo": False, "motivo": "cuerpo_no_administrativo_general", "codigos": codigos, "turno": turno}
         if especialidad and not (
             especialidad in ESPECIALIDADES_PERMITIDAS_CUERPO_SUPERIOR
             and "cuerpo superior de administracion" in n
         ):
-            return {"administrativo": False, "motivo": especialidad, "codigos": codigos}
-        return {"administrativo": True, "motivo": None, "codigos": codigos}
+            return {"administrativo": False, "motivo": especialidad, "codigos": codigos, "turno": turno}
+        return {"administrativo": True, "motivo": None, "codigos": codigos, "turno": turno}
     if especialidad:
-        return {"administrativo": False, "motivo": especialidad, "codigos": codigos}
+        return {"administrativo": False, "motivo": especialidad, "codigos": codigos, "turno": turno}
     if any(re.search(p, n) for p in PATRONES_ADMIN):
-        return {"administrativo": True, "motivo": None, "codigos": codigos}
-    return {"administrativo": False, "motivo": "sin_perfil_administrativo", "codigos": codigos}
+        return {"administrativo": True, "motivo": None, "codigos": codigos, "turno": turno}
+    return {"administrativo": False, "motivo": "sin_perfil_administrativo", "codigos": codigos, "turno": turno}
 
 
 def _es_etapa_inscripcion(etapa: str | None) -> bool:
@@ -353,6 +388,7 @@ def construir_proceso(tarjeta: dict[str, Any] | None, ficha: dict[str, Any]) -> 
         "tipo_proceso": TIPOS_ACEPTADOS.get(normalizar((tarjeta or {}).get("proceso_selectivo") or ficha.get("convocatoria")), "Oposición"),
         "cuerpo_escala": codigo_unico,
         "grupo": grupo,
+        "turno": ambito["turno"],
         "anio_convocatoria": anio,
         "fecha_apertura": apertura,
         "fecha_cierre": cierre,
@@ -444,7 +480,7 @@ def _insertar(cursor, organismo_id: int, fuente_id: int, p: dict[str, Any]) -> i
             fuente_principal_id,datos_json,es_oportunidad,origen_dato,
             revision_estado,ambito_administrativo,created_at,updated_at
         ) VALUES (
-            %s,%s,%s,%s,%s,%s,%s,'TURNO_LIBRE','EN_CURSO',
+            %s,%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',
             %s,%s,%s,%s,%s,%s,TRUE,'AUTOMATICO','PUBLICADA','SI',NOW(),NOW()
         )
         ON CONFLICT (identificador_estable) DO NOTHING
@@ -452,7 +488,7 @@ def _insertar(cursor, organismo_id: int, fuente_id: int, p: dict[str, Any]) -> i
         """,
         (
             organismo_id, p["codigo_externo"], p["identificador_estable"], p["denominacion"],
-            p["cuerpo_escala"], p["grupo"], p["tipo_proceso"], p["anio_convocatoria"], p["fecha_apertura"],
+            p["cuerpo_escala"], p["grupo"], p["tipo_proceso"], p["turno"], p["anio_convocatoria"], p["fecha_apertura"],
             p["fecha_cierre"], p["ultima_publicacion"], fuente_id, Jsonb(p["datos_json"]),
         ),
     )

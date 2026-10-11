@@ -46,6 +46,42 @@ class ListadoTest(unittest.TestCase):
         self.assertEqual(r["tarjetas"], [])
 
 
+HTML_TRUNCADO = (
+    '<div class="alert">La búsqueda devuelve demasiados resultados, solo se muestran los 100 primeros.</div>'
+    '<div class="total-results">100 resultados</div><div class="search-results">'
+    '<div class="opposition card"><a href="https://sede.gva.es/detall-ocupacio-publica?id_emp=1">'
+    '<div class="title">X</div></a></div></div>'
+)
+
+
+class TruncadoTest(unittest.TestCase):
+    def test_detecta_listado_truncado(self):
+        self.assertTrue(mod.parsear_listado(HTML_TRUNCADO)["truncado"])
+
+    def test_listado_normal_no_esta_truncado(self):
+        self.assertFalse(mod.parsear_listado(leer("listado_oposiciones.html"))["truncado"])
+
+    def test_parte_el_rango_hasta_que_cabe_y_no_pierde_ninguno(self):
+        from datetime import date, timedelta
+        base = date(2026, 1, 1)
+        # 150 procesos, uno por día: un rango de más de 60 días "se trunca".
+        datos = {i: base + timedelta(days=i) for i in range(150)}
+
+        def falso(client, d, h):
+            dentro = {i: {"id_emp": i} for i, f in datos.items() if d <= f <= h}
+            return dentro, (h - d).days >= 60
+
+        with patch.object(mod, "_recorrer_paginas", side_effect=falso):
+            r = mod.descubrir_oposiciones(None, desde=base, hasta=base + timedelta(days=149))
+        self.assertEqual(len(r), 150)
+
+    def test_un_solo_dia_truncado_falla_en_alto(self):
+        from datetime import date
+        with patch.object(mod, "_recorrer_paginas", return_value=({}, True)):
+            with self.assertRaises(mod.EstructuraInesperada):
+                mod.descubrir_oposiciones(None, desde=date(2026, 3, 1), hasta=date(2026, 3, 1))
+
+
 class FichaTest(unittest.TestCase):
     def test_ficha_cerrada_196_21(self):
         f = mod.parsear_ficha(leer("ficha_196_21_cerrada.html"), 87283)
@@ -123,9 +159,16 @@ class AmbitoTest(unittest.TestCase):
         for t in r["tarjetas"]:
             self.assertEqual(mod.clasificar_ambito(t["titulo"])["administrativo"], esperado[t["id_emp"]], t["titulo"])
 
-    def test_promocion_interna_se_excluye(self):
-        a = mod.clasificar_ambito("Convocatoria 196/21. Cuerpo C1-01 Administrativo, turno de promoción interna")
+    def test_promocion_interna_71_26_se_excluye(self):
+        a = mod.clasificar_ambito("Convocatoria 71/26. Pruebas selectivas de acceso al Cuerpo auxiliar, C2-01. PROMOCIÓN INTERNA")
         self.assertFalse(a["administrativo"])
+        self.assertEqual(a["motivo"], "promocion_interna")
+
+    def test_turno_libre_por_defecto(self):
+        a = mod.clasificar_ambito("Convocatoria 58/26. Pruebas selectivas de acceso al Cuerpo administrativo, C1-01. TURNO LIBRE")
+        self.assertEqual(a["turno"], "TURNO_LIBRE")
+
+
 
     def test_fondos_europeos_del_cuerpo_superior_si_entra(self):
         a = mod.clasificar_ambito("Convocatoria 1/26. Proceso selectivo 3. Pruebas selectivas de acceso al cuerpo Superior de Administración. APT-A1-01-02, de fondos europeos. TURNO LIBRE")
