@@ -109,6 +109,100 @@ class FichaTest(unittest.TestCase):
             mod.parsear_ficha("<html><body>Error</body></html>", 1)
 
 
+HTML_ETAPA_BASES = """<html><body><div class="derecha">
+<a href="javascript:void(0)">Volver al listado de etapas</a><h3>Bases y apertura de plazo</h3>
+<div class="bloque fase"><div class="titulos">Fase</div><div class="textos"><p>Convocatoria</p></div></div>
+<div class="bloque plazo"><div class="titulos">Plazo</div><div class="textos"><div class="cerrado"><span>Desde 30-03-2026 a 14-04-2026</span></div>
+<p>10 días hábiles, contados a partir del día siguiente al de la publicación de esta convocatoria en el Diario Oficial.</p></div></div>
+<div class="bloque publicacion"><div class="titulos">Publicación</div><div class="textos">
+<a href="https://dogv.gva.es/datos/2026/03/27/pdf/2026_1234_es.pdf">DOGV núm. 10331 de 27-03-2026</a></div></div>
+</div></body></html>"""
+
+
+class InscripcionTest(unittest.TestCase):
+    def test_parsea_el_detalle_de_la_etapa_de_bases(self):
+        e = mod.parsear_etapa(HTML_ETAPA_BASES)
+        self.assertEqual((e["plazo_desde"], e["plazo_hasta"]), ("2026-03-30", "2026-04-14"))
+        self.assertEqual((e["dogv_numero"], e["dogv_fecha"]), ("10331", "2026-03-27"))
+        self.assertTrue(e["dogv_url"].startswith("https://dogv.gva.es"))
+
+    def test_las_etapas_traen_su_id_y_se_localiza_la_de_bases(self):
+        f = mod.parsear_ficha(leer("ficha_196_21_cerrada.html"), 87283)
+        ins = mod.etapas_inscripcion(f)
+        self.assertEqual([e["nombre"] for e in ins], ["Bases y apertura de plazo"])
+        self.assertEqual(ins[0]["id"], "1")
+
+    def test_ampliacion_extiende_el_cierre_y_el_dogv_es_el_de_las_bases(self):
+        bases = {"plazo_desde": "2026-03-30", "plazo_hasta": "2026-04-14", "dogv_numero": "10331", "dogv_fecha": "2026-03-27", "dogv_url": None}
+        amplia = {"plazo_desde": "2026-04-15", "plazo_hasta": "2026-04-24", "dogv_numero": "10340", "dogv_fecha": "2026-04-10", "dogv_url": None}
+        c = mod.combinar_inscripcion([bases, amplia])
+        self.assertEqual((c["plazo_desde"], c["plazo_hasta"]), ("2026-03-30", "2026-04-24"))
+        self.assertEqual(c["dogv_numero"], "10331")
+
+    def test_sin_datos_no_inventa_nada(self):
+        self.assertIsNone(mod.combinar_inscripcion([{"plazo_desde": None, "dogv_numero": None}]))
+
+    def test_proceso_en_fase_de_tribunal_recibe_las_fechas_de_inscripcion(self):
+        f = mod.parsear_ficha(leer("ficha_activa_convocatoria.html"), 99999)
+        f["etapa_actual"] = "Modificación composición del tribunal"
+        f["plazo_desde"], f["plazo_hasta"] = None, None
+        f["dogv_numero"], f["dogv_fecha"] = "10452", "2026-09-16"
+        f["inscripcion"] = mod.combinar_inscripcion([mod.parsear_etapa(HTML_ETAPA_BASES)])
+        p = mod.construir_proceso(None, f)
+        self.assertEqual((p["fecha_apertura"], p["fecha_cierre"]), ("2026-03-30", "2026-04-14"))
+        # el DOGV de la convocatoria es el de las bases, no el de la última etapa
+        self.assertEqual(p["datos_json"]["dogv_numero"], "10331")
+
+    def test_sin_inscripcion_leida_no_hay_fechas_ni_dogv_falso(self):
+        f = mod.parsear_ficha(leer("ficha_activa_convocatoria.html"), 99999)
+        f["etapa_actual"] = "Modificación composición del tribunal"
+        f["dogv_numero"], f["dogv_fecha"] = "10452", "2026-09-16"
+        p = mod.construir_proceso(None, f)
+        self.assertIsNone(p["fecha_cierre"])
+        self.assertIsNone(p["datos_json"]["dogv_numero"])
+
+
+class AnalisisConEtapasTest(unittest.TestCase):
+    def _ejecutar(self, con_fechas):
+        ficha = mod.parsear_ficha(leer("ficha_activa_convocatoria.html"), 99999)
+        ficha["etapa_actual"] = "Modificación composición del tribunal"
+        ficha["fase"] = "Oposición"
+        ficha["plazo_desde"] = ficha["plazo_hasta"] = None
+        ficha["etapas"] = [
+            {"id": "5", "nombre": "Modificación composición del tribunal", "fecha_publicacion": "2026-09-16", "actual": True},
+            {"id": "1", "nombre": "Bases y apertura de plazo", "fecha_publicacion": "2026-03-27", "actual": False},
+        ]
+        tarjeta = {"id_emp": 99999, "titulo": ficha["titulo"], "proceso_selectivo": "Oposición"}
+        urls = []
+
+        def falsa_get(client, url, **kw):
+            urls.append(url)
+            r = MagicMock()
+            r.text = HTML_ETAPA_BASES if "id_etapa" in url else "<html></html>"
+            return r
+
+        cliente = MagicMock()
+        cliente.__enter__.return_value = cliente
+        with ExitStack() as pila:
+            pila.enter_context(patch.object(mod, "nuevo_cliente", return_value=cliente))
+            pila.enter_context(patch.object(mod, "descubrir_oposiciones", return_value=[tarjeta]))
+            pila.enter_context(patch.object(mod, "_get_gva_con_reintentos", side_effect=falsa_get))
+            pila.enter_context(patch.object(mod, "parsear_ficha", return_value=ficha))
+            pila.enter_context(patch.object(mod.time, "sleep"))
+            r = mod.analizar_oposiciones_gva_sede(dias=30, hoy=__import__("datetime").date(2026, 10, 11), con_fechas=con_fechas)
+        return r, urls
+
+    def test_pide_la_etapa_de_bases_y_rellena_las_fechas(self):
+        r, urls = self._ejecutar(set())
+        self.assertTrue(any("id_etapa=1" in u for u in urls))
+        p = r["analizadas"][0]["proceso"]
+        self.assertEqual((p["fecha_apertura"], p["fecha_cierre"]), ("2026-03-30", "2026-04-14"))
+
+    def test_si_ya_tiene_fechas_no_pide_etapas(self):
+        r, urls = self._ejecutar({99999})
+        self.assertFalse(any("id_etapa" in u for u in urls))
+
+
 class CierreTest(unittest.TestCase):
     def ficha(self, etapa, fase="Oposición", etapas=()):
         return {"etapa_actual": etapa, "fase": fase, "ultima_publicacion": "2026-06-01",

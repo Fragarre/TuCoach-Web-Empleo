@@ -234,6 +234,7 @@ def parsear_ficha(html: str, id_emp: int, url: str | None = None) -> dict[str, A
             fecha = _fecha(_txt(bloque.select_one(".fecha-etapa")))
             plazo_nodo = bloque.parent.select_one(".plazo-etapa") if bloque.parent else None
             etapas.append({
+                "id": (nombre_nodo.get("name") or "").strip() or None,
                 "nombre": nombre,
                 "fecha_publicacion": fecha.isoformat() if fecha else None,
                 "plazo": _txt(plazo_nodo) or None,
@@ -298,6 +299,54 @@ def parsear_ficha(html: str, id_emp: int, url: str | None = None) -> dict[str, A
         "etapas": etapas,
         "ultima_publicacion": max(fechas_pub) if fechas_pub else None,
         "contenido_hash": hashlib.sha256(texto.encode("utf-8")).hexdigest(),
+    }
+
+
+def parsear_etapa(html: str) -> dict[str, Any]:
+    """Detalle de UNA etapa (``detall-ocupacio-publica?id_emp=N&id_etapa=K``):
+    plazo y publicación DOGV de esa etapa. Campos ausentes -> None."""
+    soup = BeautifulSoup(html, "html.parser")
+    texto = _txt(soup)
+    plazo = re.search(r"Desde\s+(\d{2}-\d{2}-\d{4})\s+(?:hasta|a)\s+(\d{2}-\d{2}-\d{4})", texto)
+    dogv = re.search(r"DOGV\s*n[uú]m\.\s*(\d+)\s*de\s*(\d{2}-\d{2}-\d{4})", texto)
+    enlace = next((a.get("href") for a in soup.select("a[href*='dogv.gva.es']")), None)
+    f_desde = _fecha(plazo.group(1)) if plazo else None
+    f_hasta = _fecha(plazo.group(2)) if plazo else None
+    f_dogv = _fecha(dogv.group(2)) if dogv else None
+    return {
+        "plazo_desde": f_desde.isoformat() if f_desde else None,
+        "plazo_hasta": f_hasta.isoformat() if f_hasta else None,
+        "dogv_numero": dogv.group(1) if dogv else None,
+        "dogv_fecha": f_dogv.isoformat() if f_dogv else None,
+        "dogv_url": enlace,
+    }
+
+
+def etapas_inscripcion(ficha: dict[str, Any], maximo: int = 3) -> list[dict[str, Any]]:
+    """Etapas (con id) que abren o amplían el plazo de solicitudes, más antigua primero."""
+    candidatas = [
+        e for e in (ficha.get("etapas") or [])
+        if e.get("id") and re.search(r"bases y apertura|apertura de plazo|ampliacion (?:del )?plazo", normalizar(e.get("nombre")))
+    ]
+    candidatas.sort(key=lambda e: (e.get("fecha_publicacion") or "9999", int(e["id"]) if str(e["id"]).isdigit() else 0))
+    return candidatas[:maximo]
+
+
+def combinar_inscripcion(detalles: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Une los detalles de las etapas de inscripción: plazo = desde el primero
+    hasta el último cierre (las ampliaciones lo extienden); DOGV = el de las bases."""
+    utiles = [d for d in detalles if d.get("plazo_desde") or d.get("dogv_numero")]
+    if not utiles:
+        return None
+    desdes = [d["plazo_desde"] for d in utiles if d.get("plazo_desde")]
+    hastas = [d["plazo_hasta"] for d in utiles if d.get("plazo_hasta")]
+    bases = utiles[0]
+    return {
+        "plazo_desde": min(desdes) if desdes else None,
+        "plazo_hasta": max(hastas) if hastas else None,
+        "dogv_numero": bases.get("dogv_numero"),
+        "dogv_fecha": bases.get("dogv_fecha"),
+        "dogv_url": bases.get("dogv_url"),
     }
 
 
@@ -379,13 +428,21 @@ def construir_proceso(tarjeta: dict[str, Any] | None, ficha: dict[str, Any]) -> 
     """Registro listo para persistir (no toca BD)."""
     titulo = ficha.get("titulo") or (tarjeta or {}).get("titulo") or f"Proceso GVA {ficha['id_emp']}"
     ambito = clasificar_ambito(titulo, ficha.get("convocatoria"))
-    inscripcion = _es_etapa_inscripcion(ficha.get("etapa_actual"))
-    apertura = ficha.get("plazo_desde") if inscripcion else None
-    cierre = ficha.get("plazo_hasta") if inscripcion else None
+    en_inscripcion = _es_etapa_inscripcion(ficha.get("etapa_actual"))
+    insc = ficha.get("inscripcion")  # leído de las etapas de inscripción (ya pasadas)
+    if en_inscripcion:
+        apertura, cierre = ficha.get("plazo_desde"), ficha.get("plazo_hasta")
+        dogv = {k: ficha.get(k) for k in ("dogv_numero", "dogv_fecha", "dogv_url")}
+    elif insc:
+        apertura, cierre = insc.get("plazo_desde"), insc.get("plazo_hasta")
+        dogv = {k: insc.get(k) for k in ("dogv_numero", "dogv_fecha", "dogv_url")}
+    else:
+        apertura = cierre = None
+        dogv = {"dogv_numero": None, "dogv_fecha": None, "dogv_url": None}
     m_anio = re.search(r"\b(?:convocatoria\s+)?\d+/(\d{2})\b", titulo, re.I)
     anio = 2000 + int(m_anio.group(1)) if m_anio else None
-    if not anio and ficha.get("dogv_fecha"):
-        anio = int(ficha["dogv_fecha"][:4])
+    if not anio and dogv["dogv_fecha"]:
+        anio = int(dogv["dogv_fecha"][:4])
     grupo = ficha.get("grupo")
     codigo_unico = ambito["codigos"][0] if len(ambito["codigos"]) == 1 else None
     return {
@@ -400,7 +457,7 @@ def construir_proceso(tarjeta: dict[str, Any] | None, ficha: dict[str, Any]) -> 
         "anio_convocatoria": anio,
         "fecha_apertura": apertura,
         "fecha_cierre": cierre,
-        "ultima_publicacion": ficha.get("ultima_publicacion") or ficha.get("dogv_fecha"),
+        "ultima_publicacion": ficha.get("ultima_publicacion") or dogv["dogv_fecha"],
         "ambito": ambito,
         "datos_json": {
             "fuente_descubrimiento": "sede.gva.es",
@@ -418,9 +475,9 @@ def construir_proceso(tarjeta: dict[str, Any] | None, ficha: dict[str, Any]) -> 
             "plazo_etapa_hasta": ficha.get("plazo_hasta"),
             "plazas": ficha.get("plazas") or (tarjeta or {}).get("plazas"),
             "codigos_administrativos": ambito["codigos"],
-            "dogv_numero": ficha.get("dogv_numero"),
-            "dogv_fecha": ficha.get("dogv_fecha"),
-            "dogv_url": ficha.get("dogv_url"),
+            "dogv_numero": dogv["dogv_numero"],
+            "dogv_fecha": dogv["dogv_fecha"],
+            "dogv_url": dogv["dogv_url"],
             "etapas": ficha.get("etapas"),
             "contenido_hash": ficha.get("contenido_hash"),
         },
@@ -476,6 +533,20 @@ def _cargar_en_curso_propias(cursor, organismo_id: int) -> list[int]:
         (organismo_id,),
     )
     return sorted({int(f["id_emp"]) for f in cursor.fetchall() if str(f.get("id_emp") or "").isdigit()})
+
+
+def _ids_con_fechas(cursor, organismo_id: int) -> set[int]:
+    """id_emp de oposiciones GVA propias que ya tienen fecha de cierre de inscripción."""
+    cursor.execute(
+        """
+        SELECT COALESCE(NULLIF(datos_json->>'id_emp',''), substring(identificador_estable from '^GVA:(\\d+)$')) AS id_emp
+        FROM procesos
+        WHERE organismo_id=%s AND fecha_cierre IS NOT NULL
+          AND COALESCE(datos_json->>'categoria_gva','') = 'OPOSICION'
+        """,
+        (organismo_id,),
+    )
+    return {int(f["id_emp"]) for f in cursor.fetchall() if str(f.get("id_emp") or "").isdigit()}
 
 
 def _insertar(cursor, organismo_id: int, fuente_id: int, p: dict[str, Any]) -> int | None:
@@ -576,9 +647,12 @@ def _cerrar(cursor, existente: dict[str, Any], cierre: dict[str, Any], url: str)
     return True
 
 
-def analizar_oposiciones_gva_sede(*, dias: int, hoy: date | None = None, conocidas: list[int] | None = None) -> dict[str, Any]:
+def analizar_oposiciones_gva_sede(*, dias: int, hoy: date | None = None, conocidas: list[int] | None = None,
+                                  con_fechas: set[int] | None = None) -> dict[str, Any]:
     """Lee Sede (listado + fichas). Sin escrituras en BD. ``conocidas`` son id_emp
-    que ya seguimos como activas y deben revisarse aunque no salgan en el listado."""
+    que ya seguimos como activas y deben revisarse aunque no salgan en el listado.
+    ``con_fechas`` son los que ya tienen guardado el plazo de inscripción: a esos no se
+    les piden las etapas de inscripción (ahorra tráfico del proxy)."""
     hoy = hoy or date.today()
     desde = hoy - timedelta(days=max(dias, 1) - 1)
     errores: list[dict[str, Any]] = []
@@ -609,6 +683,19 @@ def analizar_oposiciones_gva_sede(*, dias: int, hoy: date | None = None, conocid
             except Exception as exc:
                 errores.append({"id_emp": id_emp, "fase": "ficha", "error": f"{type(exc).__name__}: {exc}"})
                 continue
+            if (not _es_etapa_inscripcion(ficha.get("etapa_actual"))
+                    and id_emp not in (con_fechas or set())
+                    and clasificar_ambito(ficha["titulo"], ficha.get("convocatoria"))["administrativo"]
+                    and evaluar_cierre(ficha, "Oposición") is None):
+                detalles = []
+                for etapa in etapas_inscripcion(ficha):
+                    try:
+                        time.sleep(PAUSA_ENTRE_PETICIONES)
+                        r_etapa = _get_gva_con_reintentos(client, f"{BASE_URL}/es/detall-ocupacio-publica?id_emp={id_emp}&id_etapa={etapa['id']}")
+                        detalles.append(parsear_etapa(r_etapa.text))
+                    except Exception as exc:
+                        errores.append({"id_emp": id_emp, "fase": f"etapa_{etapa['id']}", "error": f"{type(exc).__name__}: {exc}"})
+                ficha["inscripcion"] = combinar_inscripcion(detalles)
             proceso = construir_proceso(por_id.get(id_emp), ficha)
             cierre = evaluar_cierre(ficha, proceso["tipo_proceso"])
             analizadas.append({"proceso": proceso, "cierre": cierre, "ficha_titulo": ficha["titulo"]})
@@ -626,8 +713,9 @@ def persistir_oposiciones_gva_sede(*, dias: int = 30, aplicar: bool = False, hoy
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         organismo_id, fuente_id = _resolver_identidad_gva_directa(cursor)
         conocidas = _cargar_en_curso_propias(cursor, organismo_id)
+        con_fechas = _ids_con_fechas(cursor, organismo_id)
 
-    analisis = analizar_oposiciones_gva_sede(dias=dias, hoy=hoy, conocidas=conocidas)
+    analisis = analizar_oposiciones_gva_sede(dias=dias, hoy=hoy, conocidas=conocidas, con_fechas=con_fechas)
     analizadas = analisis["analizadas"]
 
     insertables = [a for a in analizadas if a["cierre"] is None and a["proceso"]["ambito"]["administrativo"]]
