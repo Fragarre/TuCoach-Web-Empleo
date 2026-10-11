@@ -163,12 +163,31 @@ def _parametros_listado(pagina: int, desde: date | None, hasta: date | None) -> 
     return params
 
 
+def _parsear_con_reintentos(client, respuesta, pagina, desde, hasta, intentos: int = 3) -> dict[str, Any]:
+    """Una página de error/mantenimiento de la Sede (HTTP 200 sin listado) suele ser
+    transitoria: se reintenta antes de fallar y el error indica qué se recibió."""
+    for n in range(1, intentos + 1):
+        try:
+            return parsear_listado(respuesta.text)
+        except EstructuraInesperada as exc:
+            if "ni .total-results" not in str(exc):
+                raise
+            muestra = " ".join(BeautifulSoup(respuesta.text, "html.parser").get_text(" ", strip=True).split())[:200]
+            if n == intentos:
+                raise EstructuraInesperada(
+                    f"{exc} (HTTP {respuesta.status_code}, {len(respuesta.text)} bytes, inicio: {muestra!r})"
+                ) from exc
+            time.sleep(PAUSA_ENTRE_PETICIONES * 5 * n)
+            respuesta = _get_gva_con_reintentos(client, URL_LISTADO, params=_parametros_listado(pagina, desde, hasta))
+    raise AssertionError("inalcanzable")
+
+
 def _recorrer_paginas(client, desde: date | None, hasta: date | None) -> tuple[dict[int, dict[str, Any]], bool]:
     vistas: dict[int, dict[str, Any]] = {}
     truncado = False
     for pagina in range(1, MAX_PAGINAS + 1):
         respuesta = _get_gva_con_reintentos(client, URL_LISTADO, params=_parametros_listado(pagina, desde, hasta))
-        listado = parsear_listado(respuesta.text)
+        listado = _parsear_con_reintentos(client, respuesta, pagina, desde, hasta)
         truncado = truncado or listado["truncado"]
         if listado["truncado"]:
             break  # inútil leer más páginas de un tramo truncado: se divide por fechas
