@@ -199,9 +199,16 @@ def _plazas_catalogo(s: str, turno: str | None) -> int | None:
     return _plazas(s)
 
 
-def _tipo(s: str) -> str:
+def _tipo(s: str, titulo: str | None = None) -> str:
+    """Tipo de proceso. «Bolsa» solo cuenta si lo dice el título oficial.
+
+    Las bases de casi toda oposición mencionan la bolsa de trabajo para
+    interinos: mirar todo el texto convertía convocatorias ordinarias en
+    bolsas (que no se muestran en Oposiciones).
+    """
     n = _sin(s)
-    if any(x in n for x in ("bolsa de trabajo", "bolsa de empleo", "borsa de treball")):
+    n_bolsa = _sin(titulo) if titulo is not None else n
+    if any(x in n_bolsa for x in ("bolsa de trabajo", "bolsa de empleo", "borsa de treball")):
         return "Bolsa de trabajo"
     if any(x in n for x in ("concurso-oposicion", "concurso oposicion", "concurs-oposicio", "concurs oposicio")):
         return "Concurso-oposición"
@@ -472,7 +479,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     plazas = _plazas_catalogo(contenido, turno)
                     desglose_plazas = _desglose_plazas(contenido)
                     estado_terminal_anuncio = clasificar_evento_terminal(
-                        _tipo(contenido),
+                        _tipo(contenido, titulo),
                         titulo,
                     )
                     ultima = datetime.combine(fecha, datetime.min.time(), tzinfo=timezone.utc) if fecha else None
@@ -483,7 +490,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                         if es_base:
                             # Releer las bases puede refrescar metadatos, pero no debe
                             # reabrir un proceso que una publicación posterior cerró.
-                            nuevos = (titulo, grupo, subgrupo, _tipo(contenido), turno, plazas, anio, fecha_convocatoria)
+                            nuevos = (titulo, grupo, subgrupo, _tipo(contenido, titulo), turno, plazas, anio, fecha_convocatoria)
                             for campo, valor_anterior, valor_nuevo in _cambios_base_existente(existente, nuevos):
                                 cursor.execute("INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) VALUES (%s,%s,%s,%s,%s,%s,TRUE)", (proceso_id, "ACTUALIZACION", campo, str(valor_anterior) if valor_anterior is not None else None, str(valor_nuevo), f"Actualización de la convocatoria: {campo}"))
                                 stats["cambios"] += 1
@@ -512,7 +519,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                                 "estado_terminal": estado_terminal_anuncio,
                             })
                             continue
-                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido), turno, plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido), **desglose_plazas})))
+                        cursor.execute("INSERT INTO procesos (organismo_id,codigo_externo,identificador_estable,denominacion,grupo,subgrupo,tipo_proceso,turno,plazas,estado,anio_convocatoria,fecha_convocatoria,ultima_publicacion_at,fuente_principal_id,es_oportunidad,ambito_administrativo,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id", (organismo_id, registro, estable, titulo, grupo, subgrupo, _tipo(contenido, titulo), turno, plazas, "EN_CURSO", anio, fecha_convocatoria, ultima, fuente_id, es_oportunidad, ambito_administrativo, Jsonb({"origen": "BOP_VALENCIA", "registro": registro, "url_ultima_publicacion": anuncio["url"], "convocatoria_identificada": _convocatoria(contenido), **desglose_plazas})))
                         proceso_id = cursor.fetchone()[0]
                         stats["procesos"] += 1
                     contenido_hash = hashlib.sha256(texto.encode("utf-8")).hexdigest()
