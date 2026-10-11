@@ -164,6 +164,18 @@ class AmbitoTest(unittest.TestCase):
         self.assertFalse(a["administrativo"])
         self.assertEqual(a["motivo"], "promocion_interna")
 
+    def test_70_26_auxiliar_turno_libre_entra(self):
+        a = mod.clasificar_ambito("Convocatoria 70/26. Pruebas selectivas de acceso al cuerpo auxiliar. C2-01. TURNO LIBRE")
+        self.assertTrue(a["administrativo"])
+
+    def test_turno_de_reserva_discapacidad_se_excluye(self):
+        a = mod.clasificar_ambito("Convocatoria 80/26. Pruebas selectivas de acceso al cuerpo auxiliar. C2-01. Turno de reserva para personas con discapacidad")
+        self.assertFalse(a["administrativo"])
+        self.assertEqual(a["motivo"], "turno_no_libre")
+
+    def test_el_listado_no_filtra_por_turno_en_la_sede(self):
+        self.assertNotIn("turnos", mod._parametros_listado(1, None, None))
+
     def test_turno_libre_por_defecto(self):
         a = mod.clasificar_ambito("Convocatoria 58/26. Pruebas selectivas de acceso al Cuerpo administrativo, C1-01. TURNO LIBRE")
         self.assertEqual(a["turno"], "TURNO_LIBRE")

@@ -152,7 +152,6 @@ def _parametros_listado(pagina: int, desde: date | None, hasta: date | None) -> 
         "pagina": str(pagina),
         "tamanyoPagina": "30",
         "grupos": GRUPOS_ADMIN,
-        "turnos": "L",
         "tipoOrganismo": "GVA",
     }
     if desde:
@@ -345,6 +344,11 @@ def clasificar_ambito(titulo: str, convocatoria: str | None = None) -> dict[str,
     turno = "TURNO_LIBRE"
     if "promocion interna" in n or normalizar(convocatoria) == "promocion interna":
         return {"administrativo": False, "motivo": "promocion_interna", "codigos": codigos, "turno": "PROMOCION_INTERNA"}
+    # El buscador de la Sede NO marca como "Libre" algunas convocatorias de turno libre
+    # (p. ej. la 70/26), así que no se filtra allí: se filtra aquí por el título.
+    # Si el título habla de un turno que no es el libre (reserva de discapacidad...), fuera.
+    if re.search(r"\bturno\b", n) and "turno libre" not in n:
+        return {"administrativo": False, "motivo": "turno_no_libre", "codigos": codigos, "turno": "OTRO"}
     especialidad = motivo_especialidad(n)
     if codigos:
         generales = [c for c in codigos if re.fullmatch(r"(A1|A2|C1|C2)-01(?:-[A-Z0-9]+)*", c)]
