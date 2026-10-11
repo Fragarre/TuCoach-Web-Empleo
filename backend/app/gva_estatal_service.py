@@ -28,6 +28,14 @@ def _signatura_dogv(url: str | None) -> str | None:
     return f"{m.group(1)}_{m.group(2)}" if m else None
 
 
+def sede_fuera_de_servicio(html: str | None) -> bool:
+    """True si la respuesta es la página de mantenimiento de la Sede (no una ficha ni un listado)."""
+    texto = html or ""
+    if len(texto) > 30000 or "id_emp=" in texto:
+        return False
+    return bool(re.search(r"fuera\s+de\s+servicio|fora\s+de\s+servei", texto, re.I))
+
+
 def _get_gva_con_reintentos(
     client: httpx.Client,
     url: str,
@@ -41,11 +49,14 @@ def _get_gva_con_reintentos(
         try:
             respuesta = client.get(url, params=params)
             respuesta.raise_for_status()
+            if sede_fuera_de_servicio(respuesta.text):
+                # La Sede responde 200 con una página de mantenimiento: no es contenido.
+                raise httpx.NetworkError("Sede GVA fuera de servicio (página de mantenimiento)")
             return respuesta
         except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
             ultimo = exc
             if intento < intentos:
-                time.sleep(2 * intento)
+                time.sleep(2 * intento if not isinstance(exc, httpx.NetworkError) else 10 * intento)
     assert ultimo is not None
     raise ultimo
 
