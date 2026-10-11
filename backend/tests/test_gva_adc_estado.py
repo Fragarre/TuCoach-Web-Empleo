@@ -8,7 +8,9 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.gva_adc import (
+    _cierre_desde_texto_anuncio,
     _es_promocion_interna,
+    _estado_accionable,
     _estado_proceso_adc,
     _extraer_bolsas_texto_oficial,
     _numero_adc,
@@ -35,17 +37,18 @@ class EstadoProcesoAdcTest(unittest.TestCase):
             "ANULADO",
         )
 
-    def test_adjudicacion_con_plazo_ya_cerrado_sigue_activa(self) -> None:
-        self.assertEqual(
-            _estado_proceso_adc("Adjudicación difícil cobertura"),
-            "EN_CURSO",
-        )
+    def test_etapa_de_adjudicacion_finaliza_el_adc(self) -> None:
+        self.assertEqual(_estado_proceso_adc("Adjudicación difícil cobertura"), "FINALIZADO")
+        self.assertEqual(_estado_proceso_adc("Adjudicació de difícil cobertura"), "FINALIZADO")
 
-    def test_correccion_adjudicacion_sigue_activa(self) -> None:
+    def test_correccion_adjudicacion_tambien_finalizada(self) -> None:
         self.assertEqual(
             _estado_proceso_adc("Corrección errores de la adjudicación difícil cobertura"),
-            "EN_CURSO",
+            "FINALIZADO",
         )
+
+    def test_etapa_de_anuncio_sin_plazo_acreditado_sigue_en_curso(self) -> None:
+        self.assertEqual(_estado_proceso_adc("Anuncio difícil cobertura"), "EN_CURSO")
 
     def test_plazo_cerrado_finaliza_el_adc(self) -> None:
         self.assertEqual(
@@ -62,6 +65,38 @@ class EstadoProcesoAdcTest(unittest.TestCase):
             _estado_proceso_adc("Anulación de anuncio difícil cobertura", "PLAZO_CERRADO"),
             "ANULADO",
         )
+
+    def test_extrae_bolsa_clonada_del_anuncio_de_servicios_sociales(self) -> None:
+        texto = (
+            "Les persones que poden participar són les integrants de la Borsa\n"
+            "CLONADA - 1013-B. Cos C2-01. Auxiliar. Modalitat Estabilització\n"
+            "Las personas que pueden participar son las integrantes Bolsa\n"
+            "CLONADA - 1013-B. Cuerpo C2-01. Auxiliar."
+        )
+        self.assertEqual(_extraer_bolsas_texto_oficial(texto), ["1013-B"])
+
+    def test_cierre_desde_anuncio_en_castellano_y_valenciano(self) -> None:
+        self.assertEqual(
+            _cierre_desde_texto_anuncio("PLAZO PRESENTACIÓN: Hasta el 17 de abril de 2026 a las 23:59 horas"),
+            "2026-04-17",
+        )
+        self.assertEqual(
+            _cierre_desde_texto_anuncio("TERMINI PRESENTACIÓ: Fins al 17 d'abril de 2026 a les 23:59 hores"),
+            "2026-04-17",
+        )
+        self.assertEqual(
+            _cierre_desde_texto_anuncio("TERMINI PRESENTACIÓ: Fins al 3 de març de 2026"),
+            "2026-03-03",
+        )
+        self.assertIsNone(_cierre_desde_texto_anuncio("Sin plazo declarado"))
+
+    def test_cierre_futuro_sin_apertura_es_accionable_y_pasado_no(self) -> None:
+        from datetime import date, timedelta
+        manana = (date.today() + timedelta(days=3)).isoformat()
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        self.assertTrue(_estado_accionable(None, manana, None)["accionable"])
+        self.assertEqual(_estado_accionable(None, ayer, None)["motivo_accionabilidad"], "PLAZO_CERRADO")
+        self.assertFalse(_estado_accionable(None, None, None)["accionable"])
 
     def test_extrae_bolsa_singular_de_adjudicacion(self) -> None:
         texto = "A1-01. Cuerpo Superior de Administración (Val, Al, Cas). Bolsa 444"

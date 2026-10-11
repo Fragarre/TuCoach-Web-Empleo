@@ -173,6 +173,15 @@ def _extraer_bolsas_texto_oficial(texto: str) -> list[str]:
     for m in patron_singular.finditer(normalizado):
         halladas.add(m.group(1).upper().replace(" ", ""))
 
+    # Bolsas cedidas a otra conselleria: "Bolsa CLONADA - 1013-B. Cuerpo ...".
+    patron_clonada = re.compile(
+        r"\b(?:bolsa|borsa)\s+clonada\s*[-\u2013:]?\s*(\d{2,4}-?[bl])\b",
+        re.I,
+    )
+    for m in patron_clonada.finditer(normalizado):
+        ref = m.group(1).upper()
+        halladas.add(ref if "-" in ref else f"{ref[:-1]}-{ref[-1]}")
+
     # Formato de listas: "Bolsas: 241, 332, 435 ...". El bloque admite
     # referencias y separadores y se detiene cuando vuelve a empezar texto.
     patron_lista = re.compile(
@@ -198,6 +207,39 @@ def _extraer_bolsas_texto_oficial(texto: str) -> list[str]:
     return sorted(halladas)
 
 
+_MESES_ANUNCIO = {
+    "enero": 1, "gener": 1, "febrero": 2, "febrer": 2, "marzo": 3, "marc": 3,
+    "abril": 4, "mayo": 5, "maig": 5, "junio": 6, "juny": 6, "julio": 7,
+    "juliol": 7, "agosto": 8, "agost": 8, "septiembre": 9, "setiembre": 9,
+    "setembre": 9, "octubre": 10, "noviembre": 11, "novembre": 11,
+    "diciembre": 12, "desembre": 12,
+}
+
+
+def _cierre_desde_texto_anuncio(texto: str) -> str | None:
+    """Fecha ISO del cierre que declara el anuncio oficial, si la declara.
+
+    Formato: "PLAZO PRESENTACIÓN: Hasta el 17 de abril de 2026 a las 23:59" /
+    "TERMINI PRESENTACIÓ: Fins al 17 d'abril de 2026 a les 23:59 hores".
+    """
+    n = _sin_acentos(texto)
+    m = re.search(
+        r"(?:plazo\s+presentacion|termini\s+presentacio)\s*:?\s*"
+        r"(?:hasta\s+el|hasta|fins\s+al|fins\s+a)\s+(\d{1,2})\s+"
+        r"(?:de\s+|del\s+|d')?\s*([a-z]+)\s+(?:de\s+|del\s+|de\s+l')?(\d{4})",
+        n,
+    )
+    if not m:
+        return None
+    mes = _MESES_ANUNCIO.get(m.group(2))
+    if not mes:
+        return None
+    try:
+        return date(int(m.group(3)), mes, int(m.group(1))).isoformat()
+    except ValueError:
+        return None
+
+
 def _relacion_bolsas_efectiva(
     bolsas_actuales: list[str],
     evidencia_actual: str | None,
@@ -214,9 +256,10 @@ def _relacion_bolsas_efectiva(
     return [], evidencia_actual
 
 
-def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
-    """Extrae bolsas únicamente de PDF oficiales enlazados por la ficha GVA."""
+def _leer_pdf_adc(client, documentos: list[dict[str, str]]) -> dict[str, Any]:
+    """Lee los PDF oficiales enlazados por la ficha GVA: bolsas y cierre del plazo."""
     halladas: set[str] = set()
+    cierres: list[str] = []
     for documento in documentos:
         url = documento.get("url")
         if not url:
@@ -228,7 +271,15 @@ def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]
         except Exception:
             continue
         halladas.update(_extraer_bolsas_texto_oficial(texto_pdf))
-    return sorted(halladas)
+        cierre = _cierre_desde_texto_anuncio(texto_pdf)
+        if cierre:
+            cierres.append(cierre)
+    return {"bolsas": sorted(halladas), "cierre": max(cierres) if cierres else None}
+
+
+def _bolsas_documento_pdf(client, documentos: list[dict[str, str]]) -> list[str]:
+    """Extrae bolsas únicamente de PDF oficiales enlazados por la ficha GVA."""
+    return _leer_pdf_adc(client, documentos)["bolsas"]
 
 
 def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
@@ -283,11 +334,15 @@ def _estado_proceso_adc(etapa_actual: str | None, motivo_accionabilidad: str | N
 
     Un ADC dura pocos días: con el plazo de solicitudes cerrado (acreditado
     por la ficha oficial o por su fecha de cierre) ya no es una oportunidad y
-    pasa a FINALIZADO. Se conserva en la base de datos, pero deja de mostrarse.
+    pasa a FINALIZADO. También cuando la ficha ya está en etapa de adjudicación
+    (las solicitudes están resueltas). Se conserva en la base de datos, pero
+    deja de mostrarse.
     """
     etapa = _sin_acentos(etapa_actual or "")
     if "anulacion" in etapa or "anul·lacio" in etapa or "anullacio" in etapa:
         return "ANULADO"
+    if "adjudicacion" in etapa or "adjudicacio" in etapa:
+        return "FINALIZADO"
     if motivo_accionabilidad == "PLAZO_CERRADO":
         return "FINALIZADO"
     return "EN_CURSO"
@@ -308,6 +363,9 @@ def _estado_accionable(fecha_apertura: str | None, fecha_cierre: str | None, est
     if apertura is not None and apertura > hoy:
         return {"accionable": False, "motivo_accionabilidad": "PLAZO_PENDIENTE"}
     if estado_plazo == "ABIERTO" or (apertura is not None and cierre is not None and apertura <= hoy <= cierre):
+        return {"accionable": True, "motivo_accionabilidad": "PLAZO_ABIERTO"}
+    if apertura is None and cierre is not None and cierre >= hoy:
+        # Anuncio oficial con fecha límite futura y sin fecha de apertura.
         return {"accionable": True, "motivo_accionabilidad": "PLAZO_ABIERTO"}
     return {"accionable": False, "motivo_accionabilidad": "PLAZO_NO_ACREDITADO"}
 
@@ -336,10 +394,12 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
     cierre = _fecha(texto, "Cierre plazo") or plazo["cierre"]
     bolsas_ficha = _bolsas_explicitas(denominacion)
     etapas = _datos_etapas(soup, texto)
-    bolsas_pdf = _bolsas_documento_pdf(client, etapas["documentos_pdf"])
+    lectura_pdf = _leer_pdf_adc(client, etapas["documentos_pdf"])
+    bolsas_pdf = lectura_pdf["bolsas"]
     bolsas = sorted(set(bolsas_ficha) | set(bolsas_pdf))
     fecha_apertura = _fecha_iso(proceso.get("fecha_apertura")) or apertura
-    fecha_cierre = _fecha_iso(proceso.get("fecha_cierre")) or cierre
+    # El plazo de la ficha manda; si no lo muestra, el que declara el anuncio.
+    fecha_cierre = _fecha_iso(proceso.get("fecha_cierre")) or cierre or lectura_pdf["cierre"]
     accion = _estado_accionable(fecha_apertura, fecha_cierre, etapas["estado_plazo"])
 
     return {
