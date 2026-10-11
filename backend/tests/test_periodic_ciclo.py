@@ -141,6 +141,35 @@ class CicloPeriodicoTest(unittest.TestCase):
         with parchear(_parches()), self.assertRaises(ValueError):
             ejecutar_periodico(aplicar=True, hoy=HOY, solo="cualquier_cosa")
 
+    def test_sin_avisos_aplica_pero_no_envia_ni_registra_y_cuenta_lo_que_se_habria_avisado(self):
+        p = _parches(
+            ids_oportunidades_visibles=MagicMock(side_effect=[set(), {5, 6, 7}]),
+            ids_novedades_seguimiento=MagicMock(side_effect=[set(), {("CAMBIO", 1), ("PUBLICACION", 2)}]),
+            filtrar_nuevas_oportunidades_notificables=MagicMock(return_value={5, 6}),
+        )
+        with parchear(p):
+            r = ejecutar_periodico(aplicar=True, hoy=HOY, sin_avisos=True)
+        self.assertEqual(r["modo"], "APLICADO")
+        self.assertTrue(r["escrituras_bd"])
+        self.assertFalse(r["notificaciones_habilitadas"])
+        p["registrar_nuevas_oportunidades"].assert_not_called()
+        p["preparar_envios_eventos"].assert_not_called()
+        p["enviar_envios_pendientes"].assert_not_called()
+        p["enviar_avisos_novedades"].assert_not_called()
+        generales = r["notificaciones_generales"]
+        self.assertTrue(generales["omitidas_sin_avisos"])
+        self.assertEqual(generales["nuevas_oportunidades_visibles"], 3)
+        self.assertEqual(generales["nuevas_oportunidades_notificables"], 2)
+        self.assertEqual(generales["ids_nuevas_visibles"], [5, 6, 7])
+        self.assertEqual(r["notificaciones_seguimiento"]["novedades_nuevas"], 2)
+
+    def test_sin_avisos_en_solo_revision_no_calcula_nada(self):
+        p = _parches()
+        with parchear(p):
+            r = ejecutar_periodico(aplicar=False, hoy=HOY, sin_avisos=True)
+        p["ids_oportunidades_visibles"].assert_not_called()
+        self.assertNotIn("notificaciones_generales", r)
+
     def test_reconciliacion_se_ejecuta_la_ultima_y_con_el_modo_del_ciclo(self):
         p = _parches()
         with parchear(p):

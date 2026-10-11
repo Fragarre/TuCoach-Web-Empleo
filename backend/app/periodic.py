@@ -194,6 +194,7 @@ def _ejecutar_ciclo(
     historico: bool = False,
     ultimos_exitos: dict[str, date] | None = None,
     solo: str | None = None,
+    sin_avisos: bool = False,
 ) -> dict[str, Any]:
     """Orquesta las fuentes validadas de Empleo con aislamiento por fuente.
 
@@ -216,9 +217,12 @@ def _ejecutar_ciclo(
 
     fecha_hoy = hoy or hoy_es()
     desde = fecha_hoy - timedelta(days=dias_solape - 1)
-    notificaciones_habilitadas = bool(aplicar and not historico)
-    visibles_antes = ids_oportunidades_visibles() if notificaciones_habilitadas else set()
-    novedades_seguimiento_antes = ids_novedades_seguimiento() if notificaciones_habilitadas else set()
+    # sin_avisos: aplica los cambios y mide qué se habría avisado, pero no
+    # registra eventos ni envía correos (primer ciclo completo / línea base).
+    calcular_diferencias = bool(aplicar and not historico)
+    notificaciones_habilitadas = bool(calcular_diferencias and not sin_avisos)
+    visibles_antes = ids_oportunidades_visibles() if calcular_diferencias else set()
+    novedades_seguimiento_antes = ids_novedades_seguimiento() if calcular_diferencias else set()
     resultado: dict[str, Any] = {
         "modo": "APLICADO" if aplicar else "SOLO_REVISION",
         "escrituras_bd": aplicar,
@@ -227,6 +231,7 @@ def _ejecutar_ciclo(
         "dias_solape": dias_solape,
         "historico": historico,
         "notificaciones_habilitadas": notificaciones_habilitadas,
+        "sin_avisos": bool(sin_avisos),
         "fuentes": {},
         "estado_fuentes": {},
         "duraciones_fuentes_segundos": {},
@@ -422,6 +427,18 @@ def _ejecutar_ciclo(
         resultado["notificaciones_seguimiento"] = {
             "envio": seguimiento_enviado,
         }
+    elif calcular_diferencias:
+        nuevos_visibles = ids_oportunidades_visibles() - visibles_antes
+        resultado["notificaciones_generales"] = {
+            "omitidas_sin_avisos": True,
+            "nuevas_oportunidades_visibles": len(nuevos_visibles),
+            "nuevas_oportunidades_notificables": len(filtrar_nuevas_oportunidades_notificables(nuevos_visibles)),
+            "ids_nuevas_visibles": sorted(nuevos_visibles)[:100],
+        }
+        resultado["notificaciones_seguimiento"] = {
+            "omitidas_sin_avisos": True,
+            "novedades_nuevas": len(ids_novedades_seguimiento() - novedades_seguimiento_antes),
+        }
     elif aplicar:
         resultado["notificaciones_generales"] = {"omitidas_modo_historico": True}
         resultado["notificaciones_seguimiento"] = {"omitidas_modo_historico": True}
@@ -443,6 +460,7 @@ def ejecutar_periodico(
     dias_solape: int = DIAS_SOLAPE_DEFECTO,
     historico: bool = False,
     solo: str | None = None,
+    sin_avisos: bool = False,
 ) -> dict[str, Any]:
     """Punto de entrada del ciclo: exclusión mutua + ventanas + trazabilidad.
 
@@ -473,6 +491,7 @@ def ejecutar_periodico(
             historico=historico,
             ultimos_exitos=exitos,
             solo=solo,
+            sin_avisos=sin_avisos,
         )
     except Exception as exc:
         finalizar_ciclo(ciclo_id, "CON_ERRORES", {"excepcion": f"{type(exc).__name__}: {str(exc)[:500]}"})

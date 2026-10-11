@@ -12,6 +12,7 @@ Ordinario (cron diario):      python scripts/run_periodic_http.py --aplicar
 Carga histórica inicial:      python scripts/run_periodic_http.py --aplicar --historico --dias 730
 Solo revisar (no escribe):    python scripts/run_periodic_http.py
 Solo ADC (barato, frecuente): python scripts/run_periodic_http.py --aplicar --solo gva_adc
+Línea base sin correos:       python scripts/run_periodic_http.py --aplicar --sin-avisos
 """
 from __future__ import annotations
 
@@ -61,6 +62,11 @@ def main() -> int:
         choices=["gva_adc"],
         help="Ejecuta solo esa fuente (con avisos de seguimiento). gva_adc: anuncios de difícil cobertura",
     )
+    parser.add_argument(
+        "--sin-avisos",
+        action="store_true",
+        help="Aplica los cambios pero no envía correos; informa de cuántos se habrían avisado",
+    )
     args = parser.parse_args()
 
     try:
@@ -69,6 +75,7 @@ def main() -> int:
             dias_solape=args.dias,
             historico=args.historico,
             solo=args.solo,
+            sin_avisos=args.sin_avisos,
         )
     except ValueError as exc:
         print(f"Parámetros no válidos: {exc}", file=sys.stderr)
