@@ -55,6 +55,9 @@ def clasificar_subescala(texto: str | None) -> dict[str, str] | None:
             if len(presentes) == 1:
                 clave = next(iter(presentes))
                 subgrupo, literal = _SUBESCALA_GENERAL[clave], f"Administración General / {clave}"
+                # Subescala Técnica con "clase Media" (técnico medio) es A2, no A1.
+                if clave == "tecnica" and re.search(r"\bclase\s+(?:de\s+)?(?:tecnico\s+)?medi[ao]\b", fragmento):
+                    subgrupo, literal = "A2", "Administración General / técnica, clase media"
     elif "administracion especial" in n:
         encontradas = [(c, g) for c, g in _CLASE_ESPECIAL if c in n]
         if len(encontradas) == 1:

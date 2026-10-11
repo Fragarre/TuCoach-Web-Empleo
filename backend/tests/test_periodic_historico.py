@@ -61,6 +61,9 @@ class PeriodicHistoricoTest(unittest.TestCase):
             "persistir_oposiciones_gva_sede": lambda **_: {},
             "sincronizar_plazos_inscripcion": lambda **_: {},
             "sincronizar_grupos_subescala": lambda **_: {},
+            "sincronizar_grupos_documento": lambda **_: {},
+            "sincronizar_grupos_por_nombre": lambda **_: {},
+            "limpiar_titulos_bop": lambda **_: {},
             "reconciliar_cierres": lambda **_: {},
             # El ciclo reserva/cierra su registro en BD: aquí se simula.
             "iniciar_ciclo": lambda **_: (5, "INICIADO"),
@@ -90,6 +93,9 @@ class PeriodicHistoricoTest(unittest.TestCase):
                 "gva",
                 "plazos_inscripcion",
                 "clasificacion_subescala",
+                "grupos_documento",
+                "grupos_nombre",
+                "titulos_bop",
                 "reconciliacion_cierres",
             },
         )

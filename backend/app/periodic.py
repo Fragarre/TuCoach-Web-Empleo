@@ -26,6 +26,9 @@ from .ciclos import (
 )
 from .festivos import hoy_es
 from .clasificacion_subescala import sincronizar_grupos_subescala
+from .grupos_documento import sincronizar_grupos_documento
+from .grupos_por_nombre import sincronizar_grupos_por_nombre
+from .titulos_bop import limpiar_titulos_bop
 from .plazos_inscripcion import sincronizar_plazos_inscripcion
 from .reconciliar_cierres import reconciliar_cierres
 
@@ -352,6 +355,26 @@ def _ejecutar_ciclo(
     registrar(
         "clasificacion_subescala",
         lambda: sincronizar_grupos_subescala(aplicar=aplicar),
+    )
+
+    # Grupo/subgrupo desde el documento de las bases (tabla del BOP o de la
+    # sede) cuando el BOE no declara la subescala. Solo rellena vacíos.
+    registrar(
+        "grupos_documento",
+        lambda: sincronizar_grupos_documento(aplicar=aplicar),
+    )
+
+    # Último recurso: grupo deducido del nombre oficial EXACTO del puesto
+    # ("Administrativo/a" → C1...). Queda marcado como DEDUCIDO_DEL_NOMBRE.
+    registrar(
+        "grupos_nombre",
+        lambda: sincronizar_grupos_por_nombre(aplicar=aplicar),
+    )
+
+    # Puesto legible en lugar del título bruto del edicto del BOP.
+    registrar(
+        "titulos_bop",
+        lambda: limpiar_titulos_bop(aplicar=aplicar),
     )
 
     # Da de baja todo proceso cuyo resultado final ya consta en publicaciones,

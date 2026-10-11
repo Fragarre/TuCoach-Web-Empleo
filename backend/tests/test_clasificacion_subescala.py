@@ -104,3 +104,14 @@ class SincronizarTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestClaseMedia(unittest.TestCase):
+    def test_tecnica_clase_media_es_a2(self):
+        r = cs.clasificar_subescala(
+            "perteneciente a la escala de Administración General, subescala Técnica y clase Media, por el sistema de oposición")
+        self.assertEqual(r["subgrupo"], "A2")
+
+    def test_tecnica_sin_clase_sigue_a1(self):
+        r = cs.clasificar_subescala("escala de Administración General, subescala Técnica, por oposición")
+        self.assertEqual(r["subgrupo"], "A1")

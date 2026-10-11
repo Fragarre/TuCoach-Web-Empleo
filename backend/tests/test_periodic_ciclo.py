@@ -43,6 +43,7 @@ FUENTES = (
     "importar_gva_estatal", "persistir_bolsas_gva_complementarias", "persistir_adc_gva",
     "persistir_cesiones_gva", "actualizar_bolsas_gva_simplificadas", "persistir_oposiciones_gva_sede",
     "sincronizar_plazos_inscripcion", "sincronizar_grupos_subescala",
+    "sincronizar_grupos_documento", "sincronizar_grupos_por_nombre", "limpiar_titulos_bop",
     "reconciliar_cierres",
 )
 
