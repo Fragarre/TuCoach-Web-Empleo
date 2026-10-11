@@ -42,6 +42,10 @@ MAX_FICHAS_POR_EJECUCION = 120
 PAUSA_ENTRE_PETICIONES = 0.4
 
 TIPOS_ACEPTADOS = {"oposicion": "Oposición", "proceso de estabilizacion": "Proceso de estabilización"}
+# Excepción acordada: la Convocatoria 1/26 del Cuerpo Superior de Administración
+# se divide en procesos selectivos (general, ciencias jurídicas, fondos europeos)
+# y los tres son oposiciones administrativas.
+ESPECIALIDADES_PERMITIDAS_CUERPO_SUPERIOR = frozenset({"especialidad_apt", "especialidad_fondos_europeos"})
 FASES_RESOLUCION = frozenset({"adjudicacion y nombramiento", "nombramiento"})
 _RE_FECHA = re.compile(r"(\d{2})-(\d{2})-(\d{4})")
 _RE_CODIGO_CUERPO = re.compile(r"\b([abc][12])-(\d{2})(?:-[a-z0-9]{2,5})*\b", re.I)
@@ -311,7 +315,10 @@ def clasificar_ambito(titulo: str, convocatoria: str | None = None) -> dict[str,
         generales = [c for c in codigos if re.fullmatch(r"(A1|A2|C1|C2)-01(?:-[A-Z0-9]+)*", c)]
         if not generales:
             return {"administrativo": False, "motivo": "cuerpo_no_administrativo_general", "codigos": codigos}
-        if especialidad:
+        if especialidad and not (
+            especialidad in ESPECIALIDADES_PERMITIDAS_CUERPO_SUPERIOR
+            and "cuerpo superior de administracion" in n
+        ):
             return {"administrativo": False, "motivo": especialidad, "codigos": codigos}
         return {"administrativo": True, "motivo": None, "codigos": codigos}
     if especialidad:

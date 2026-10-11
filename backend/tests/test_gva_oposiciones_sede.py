@@ -127,6 +127,14 @@ class AmbitoTest(unittest.TestCase):
         a = mod.clasificar_ambito("Convocatoria 196/21. Cuerpo C1-01 Administrativo, turno de promoción interna")
         self.assertFalse(a["administrativo"])
 
+    def test_fondos_europeos_del_cuerpo_superior_si_entra(self):
+        a = mod.clasificar_ambito("Convocatoria 1/26. Proceso selectivo 3. Pruebas selectivas de acceso al cuerpo Superior de Administración. APT-A1-01-02, de fondos europeos. TURNO LIBRE")
+        self.assertTrue(a["administrativo"])
+
+    def test_otras_apt_siguen_excluidas(self):
+        a = mod.clasificar_ambito("Convocatoria 60/26. Pruebas selectivas de acceso al cuerpo Especialista técnico. APT-C1-03-01-04, de comunicación y emergencias. TURNO LIBRE")
+        self.assertFalse(a["administrativo"])
+
     def test_especialidades_excluidas(self):
         self.assertFalse(mod.clasificar_ambito("Cuerpo C1-01 Administrativo, especialidad APT-01")["administrativo"])
 
