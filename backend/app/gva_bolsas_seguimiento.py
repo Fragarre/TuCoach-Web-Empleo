@@ -12,7 +12,7 @@ from . import gva_clean
 from .gva_bolsas_complementarias import _clasificar_detalle
 from .gva_estatal_service import _get_gva_con_reintentos
 from .estado_proceso import clasificar_evento_terminal
-from .ciclo_vida import es_estado_terminal
+from .ciclo_vida import ESTADOS_TERMINALES_SQL_IN, es_estado_terminal
 from .gva_estatal_persist import _resolver_identidad_gva
 from .gva_estatal_seguimiento import (
     ESTADOS_TERMINALES,
@@ -57,6 +57,58 @@ def _cargar_bolsas_activas() -> list[dict[str, Any]]:
         item["id_emp"] = id_emp
         salida.append(item)
     return salida
+
+
+ESTADO_BOLSA_CERRADA = "FINALIZADO"
+ORIGEN_CIERRE_FASE = "FASE_GVA"
+
+
+def bolsa_ya_no_funciona(estado_actual: dict[str, Any] | None) -> bool:
+    """Una bolsa GVA está activa mientras su ficha dice «Bolsa en funcionamiento».
+
+    Solo se considera inactiva si la ficha informa de otra fase. Si la fase no
+    se pudo leer (ficha cambiada, error de lectura), no se cierra nada.
+    """
+    if not isinstance(estado_actual, dict):
+        return False
+    fase = " ".join(str(estado_actual.get("fase_gva") or "").split())
+    return bool(fase) and not estado_actual.get("bolsa_en_funcionamiento")
+
+
+def _cerrar_bolsa_por_fase(cursor, accion: dict[str, Any], *, notificable: bool) -> bool:
+    """Da de baja una bolsa directa cuya ficha ya no indica «Bolsa en funcionamiento»."""
+    actual = accion["estado_actual"]
+    proceso_id = int(accion["proceso_id"])
+    marca = {"cierre": {
+        "origen": ORIGEN_CIERRE_FASE,
+        "regla": "BOLSA_FUERA_DE_FUNCIONAMIENTO",
+        "fase_gva": actual.get("fase_gva"),
+        "etapa_actual_gva": actual.get("etapa_actual_gva"),
+        "url": actual.get("url_detalle"),
+    }}
+    cursor.execute(
+        "SELECT estado FROM procesos WHERE id=%s", (proceso_id,),
+    )
+    fila = cursor.fetchone()
+    anterior = fila.get("estado") if fila else None
+    cursor.execute(
+        "UPDATE procesos SET estado=%s, datos_json = COALESCE(datos_json,'{}'::jsonb) || %s, "
+        "updated_at=NOW() WHERE id=%s AND LOWER(COALESCE(estado,'')) NOT IN "
+        + ESTADOS_TERMINALES_SQL_IN,
+        (ESTADO_BOLSA_CERRADA, Jsonb(marca), proceso_id),
+    )
+    if not cursor.rowcount:
+        return False
+    cursor.execute(
+        "INSERT INTO cambios (proceso_id,tipo,campo,valor_anterior,valor_nuevo,resumen,significativo) "
+        "VALUES (%s,'ACTUALIZACION','estado',%s,%s,%s,%s)",
+        (
+            proceso_id, anterior, ESTADO_BOLSA_CERRADA,
+            f"Bolsa GVA fuera de funcionamiento: {actual.get('fase_gva')}",
+            notificable,
+        ),
+    )
+    return True
 
 
 def _estado_ficha_gva_directa(client: httpx.Client, proceso: dict[str, Any]) -> dict[str, Any]:
@@ -363,6 +415,15 @@ def actualizar_bolsas_gva_simplificadas(*, aplicar: bool = False) -> dict[str, A
     with get_connection() as connection, connection.cursor(row_factory=dict_row) as cursor:
         _, fuente_dogv_id = _resolver_identidad_gva(cursor)
         for accion in plan["acciones"]:
+            if (
+                str(accion.get("accion", "")).endswith("_GVA_DIRECTO")
+                and bolsa_ya_no_funciona(accion.get("estado_actual"))
+                # La primera lectura de una bolsa (línea base) es silenciosa.
+                and _cerrar_bolsa_por_fase(
+                    cursor, accion, notificable=accion["accion"] != "BASELINE_GVA_DIRECTO"
+                )
+            ):
+                procesos_finalizados += 1
             if accion["accion"] == "BASELINE_GVA_DIRECTO":
                 # Línea base silenciosa: evita notificar como novedad el estado
                 # que ya existía al incorporar por primera vez la bolsa.

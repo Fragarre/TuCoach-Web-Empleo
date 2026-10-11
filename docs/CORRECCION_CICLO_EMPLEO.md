@@ -55,3 +55,14 @@ Definición de negocio aplicada: **una convocatoria está activa mientras no se 
 - Los plazos en "días naturales" siguen sin calcularse (hay un test del autor que lo fija así).
 - La web (`tucoach-web`) no se ha revisado: para usar el filtro nuevo, el botón debe pasar `en_plazo=true`; si sigue filtrando en cliente por `estado_inscripcion`, también funciona ahora que el catálogo ya excluye lo resuelto.
 - Las tablas antiguas siguen sin RLS. Si la base es de Supabase, actívalo (las tablas nuevas ya lo llevan).
+
+## Ampliaciones tras la primera prueba real
+
+| Problema | Solución | Fichero |
+|---|---|---|
+| Faltaban en `fuentes` el DOGV y la sede de Alicante: las fuentes `gva` y `bop_alicante` fallaban con «Fuente no encontrada». | Migración repetible que las crea. | `database/005_fuentes_requeridas.sql` |
+| `persistir_bolsas_gva_complementarias(aplicar=True)` lanzaba `UnboundLocalError` (usaba `plan`, que solo existe en revisión) **después** de escribir: `gva` acababa en ERROR en todos los ciclos. | Corregido y con test de regresión. | `gva_bolsas_complementarias.py` |
+| Una bolsa GVA que dejaba de estar «Bolsa en funcionamiento» solo generaba un aviso: seguía activa. Además el seguimiento de bolsas ya no se ejecutaba en el ciclo (`solo_oportunidades=True`). | Se cierra (`FINALIZADO`, con marca `datos_json.cierre`) toda bolsa directa cuya ficha informe de otra fase; el seguimiento se ejecuta como último componente de `gva`. La primera lectura es silenciosa. Si la fase no se puede leer, no se cierra. | `gva_bolsas_seguimiento.py`, `organismos_cron.py` |
+| En Windows, el ciclo fallaba al imprimir «→». | Salida forzada a UTF-8. | `run_periodic_http.py`, `organismos_cron.py` |
+
+Limitación conocida: una bolsa cerrada por fase no se reabre sola si la GVA vuelve a ponerla en funcionamiento (el seguimiento solo revisa las activas).

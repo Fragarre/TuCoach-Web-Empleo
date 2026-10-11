@@ -29,7 +29,18 @@ from app.ciclos import errores_tolerados_env, evaluar_resultado
 from app.periodic import ejecutar_periodico
 
 
+def _forzar_utf8() -> None:
+    """La consola de Windows (cp1252) no sabe escribir «→» ni otros símbolos que
+    imprimen los conectores, y el ciclo fallaba al mostrar su progreso."""
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _forzar_utf8()
     parser = argparse.ArgumentParser(description="Ejecuta directamente el ciclo periódico de TuCoach Empleo")
     parser.add_argument("--aplicar", action="store_true", help="Aplica cambios; sin esta opción solo revisa")
     parser.add_argument(

@@ -16,6 +16,7 @@ ORGANISMOS_FUNCIONES = {
     "importar_bop_valencia", "importar_municipales_bop", "importar_bop_castellon",
     "bootstrap_otras_entidades_alicante", "importar_bop_alicante", "importar_gva_estatal",
     "persistir_bolsas_gva_complementarias", "persistir_adc_gva", "persistir_cesiones_gva",
+    "actualizar_bolsas_gva_simplificadas",
 }
 
 
@@ -56,6 +57,7 @@ class PeriodicHistoricoTest(unittest.TestCase):
             "persistir_bolsas_gva_complementarias": lambda **_: {},
             "persistir_adc_gva": lambda **_: {},
             "persistir_cesiones_gva": lambda **_: {},
+            "actualizar_bolsas_gva_simplificadas": lambda **_: {},
             "reconciliar_cierres": lambda **_: {},
             # El ciclo reserva/cierra su registro en BD: aquí se simula.
             "iniciar_ciclo": lambda **_: (5, "INICIADO"),

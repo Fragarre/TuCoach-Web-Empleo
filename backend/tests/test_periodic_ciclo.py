@@ -17,6 +17,7 @@ ORGANISMOS_FUNCIONES = {
     "importar_bop_valencia", "importar_municipales_bop", "importar_bop_castellon",
     "bootstrap_otras_entidades_alicante", "importar_bop_alicante", "importar_gva_estatal",
     "persistir_bolsas_gva_complementarias", "persistir_adc_gva", "persistir_cesiones_gva",
+    "actualizar_bolsas_gva_simplificadas",
 }
 
 
@@ -29,6 +30,9 @@ def parchear(parches):
             "app.periodic", **{k: v for k, v in parches.items() if k not in ORGANISMOS_FUNCIONES}))
         pila.enter_context(patch.multiple(
             "app.organismos_cron", **{k: v for k, v in parches.items() if k in ORGANISMOS_FUNCIONES}))
+        # En SOLO_REVISION la Diputación de Valencia hace un diagnóstico por red:
+        # los tests no deben salir a internet.
+        pila.enter_context(patch("app.bop_valencia_patch.diagnosticar_bop", return_value={}))
         yield
 
 HOY = date(2026, 10, 10)
@@ -37,7 +41,7 @@ FUENTES = (
     "bootstrap_otras_entidades_alicante", "importar_bop_alicante",
     "_recuperar_boe_pendientes_activos", "previsualizar_importacion_boe_local",
     "importar_gva_estatal", "persistir_bolsas_gva_complementarias", "persistir_adc_gva",
-    "persistir_cesiones_gva", "reconciliar_cierres",
+    "persistir_cesiones_gva", "actualizar_bolsas_gva_simplificadas", "reconciliar_cierres",
 )
 
 

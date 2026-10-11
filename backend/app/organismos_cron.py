@@ -17,6 +17,7 @@ from .bop_valencia_patch import importar_bop_valencia
 from .gva_adc import persistir_adc_gva
 from .gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
 from .gva_cesion_datos import persistir_cesiones_gva
+from .gva_bolsas_seguimiento import actualizar_bolsas_gva_simplificadas
 from .gva_estatal_service import importar_gva_estatal
 
 
@@ -87,6 +88,10 @@ def ejecutar_gva(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
         "GVA cesiones",
         lambda: persistir_cesiones_gva(aplicar=aplicar),
     )
+    resultado["componentes"]["bolsas_seguimiento"] = _ejecutar_componente(
+        "GVA seguimiento de bolsas",
+        lambda: actualizar_bolsas_gva_simplificadas(aplicar=aplicar),
+    )
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
         from .clasificacion_auditoria import revisar_clasificacion_puestos
 
@@ -117,8 +122,11 @@ def ejecutar_gva_oportunidades(*, hoy: date, dias: int, aplicar: bool) -> dict[s
 def ejecutar_gva_bolsas(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
     _feedback(f"GVA bolsas iniciada | aplicar={aplicar}")
     resultado = _ejecutar_componente("GVA bolsas", lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar))
+    seguimiento = _ejecutar_componente(
+        "GVA seguimiento de bolsas", lambda: actualizar_bolsas_gva_simplificadas(aplicar=aplicar)
+    )
     _feedback("GVA bolsas finalizada correctamente")
-    return {"organismo": "gva_bolsas", "componente": "bolsas", "resultado": resultado}
+    return {"organismo": "gva_bolsas", "componente": "bolsas", "resultado": resultado, "seguimiento": seguimiento}
 
 
 def ejecutar_gva_adc(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
@@ -252,6 +260,11 @@ def ejecutar_organismo(
 
 
 def _main() -> int:
+    for flujo in (sys.stdout, sys.stderr):  # consola de Windows (cp1252) y «→»
+        try:
+            flujo.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(description="Ejecuta un organismo de TuCoach Empleo de forma independiente.")
     parser.add_argument("--organismo", choices=ORGANISMOS, required=True)
     parser.add_argument("--dias", type=int, default=DIAS_SOLAPE_DEFECTO)

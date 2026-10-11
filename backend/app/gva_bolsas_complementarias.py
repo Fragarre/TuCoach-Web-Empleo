@@ -627,5 +627,5 @@ def persistir_bolsas_gva_complementarias(*, aplicar: bool = False) -> dict[str, 
         "actualizables": len(actualizables),
         "actualizados": actualizados,
         "omitidas_por_deduplicacion_o_fase": len(candidatos) - len(insertables) - len(actualizables),
-        "errores": [*plan.get("errores", []), *errores],
+        "errores": errores,
     }
