@@ -25,6 +25,7 @@ from .ciclos import (
     ultimos_exitos,
 )
 from .festivos import hoy_es
+from .clasificacion_subescala import sincronizar_grupos_subescala
 from .plazos_inscripcion import sincronizar_plazos_inscripcion
 from .reconciliar_cierres import reconciliar_cierres
 
@@ -343,6 +344,14 @@ def _ejecutar_ciclo(
     registrar(
         "plazos_inscripcion",
         lambda: sincronizar_plazos_inscripcion(aplicar=aplicar),
+    )
+
+    # Grupo/subgrupo (A1, A2, C1, C2) de las convocatorias locales a partir de
+    # la subescala que declara el anuncio oficial del BOE. Nunca sustituye un
+    # grupo ya guardado ni lo deduce del nombre del puesto.
+    registrar(
+        "clasificacion_subescala",
+        lambda: sincronizar_grupos_subescala(aplicar=aplicar),
     )
 
     # Da de baja todo proceso cuyo resultado final ya consta en publicaciones,

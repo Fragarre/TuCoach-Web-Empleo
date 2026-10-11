@@ -42,7 +42,7 @@ FUENTES = (
     "_recuperar_boe_pendientes_activos", "previsualizar_importacion_boe_local",
     "importar_gva_estatal", "persistir_bolsas_gva_complementarias", "persistir_adc_gva",
     "persistir_cesiones_gva", "actualizar_bolsas_gva_simplificadas", "persistir_oposiciones_gva_sede",
-    "sincronizar_plazos_inscripcion",
+    "sincronizar_plazos_inscripcion", "sincronizar_grupos_subescala",
     "reconciliar_cierres",
 )
 
