@@ -176,6 +176,23 @@ class AmbitoTest(unittest.TestCase):
     def test_el_listado_no_filtra_por_turno_en_la_sede(self):
         self.assertNotIn("turnos", mod._parametros_listado(1, None, None))
 
+    def test_el_listado_filtra_por_tipo_de_convocatoria(self):
+        self.assertEqual(mod._parametros_listado(1, None, None)["convocatorias"], "507,509")
+
+    def test_tramo_truncado_no_lee_mas_paginas(self):
+        llamadas = []
+
+        def falsa_get(client, url, params=None, **kw):
+            llamadas.append(params["pagina"])
+            r = MagicMock()
+            r.text = HTML_TRUNCADO
+            return r
+
+        with patch.object(mod, "_get_gva_con_reintentos", side_effect=falsa_get):
+            _, truncado = mod._recorrer_paginas(None, None, None)
+        self.assertTrue(truncado)
+        self.assertEqual(llamadas, ["1"])
+
     def test_turno_libre_por_defecto(self):
         a = mod.clasificar_ambito("Convocatoria 58/26. Pruebas selectivas de acceso al Cuerpo administrativo, C1-01. TURNO LIBRE")
         self.assertEqual(a["turno"], "TURNO_LIBRE")

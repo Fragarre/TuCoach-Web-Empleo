@@ -37,6 +37,7 @@ from .gva_estatal_source import PATRONES_ADMIN, nuevo_cliente
 BASE_URL = "https://sede.gva.es"
 URL_LISTADO = "https://sede.gva.es/es/cercador-ocupacio-publica"
 GRUPOS_ADMIN = "1029,1030,1032,1033"  # A1, A2, C1, C2
+CONVOCATORIAS_SEDE = "507,509"  # Oposición, Proceso de estabilización
 MAX_PAGINAS = 12
 MAX_CONSULTAS_RANGO = 40
 MAX_FICHAS_POR_EJECUCION = 120
@@ -152,6 +153,7 @@ def _parametros_listado(pagina: int, desde: date | None, hasta: date | None) -> 
         "pagina": str(pagina),
         "tamanyoPagina": "30",
         "grupos": GRUPOS_ADMIN,
+        "convocatorias": CONVOCATORIAS_SEDE,
         "tipoOrganismo": "GVA",
     }
     if desde:
@@ -168,6 +170,8 @@ def _recorrer_paginas(client, desde: date | None, hasta: date | None) -> tuple[d
         respuesta = _get_gva_con_reintentos(client, URL_LISTADO, params=_parametros_listado(pagina, desde, hasta))
         listado = parsear_listado(respuesta.text)
         truncado = truncado or listado["truncado"]
+        if listado["truncado"]:
+            break  # inútil leer más páginas de un tramo truncado: se divide por fechas
         for tarjeta in listado["tarjetas"]:
             vistas[tarjeta["id_emp"]] = tarjeta
         total = listado["total"]
