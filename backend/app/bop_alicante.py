@@ -129,6 +129,14 @@ def _filtrar_tipo_organismo(
 
 
 
+def alias_municipio(texto: str) -> set[str]:
+    """Formas normalizadas de un municipio. ``Benicàssim/Benicasim`` (nombre
+    cooficial doble en la base de datos) debe coincidir con ``BENICÀSSIM``."""
+    formas = {_sin_valencia(parte).strip() for parte in (texto or "").split("/")}
+    formas.discard("")
+    return formas
+
+
 def seleccionar_proceso_seguimiento(
     hallazgo: dict[str, Any],
     candidatos: list[dict[str, Any]],
@@ -143,11 +151,11 @@ def seleccionar_proceso_seguimiento(
     if not _es_seguimiento_selectivo_claro(hallazgo.get("extracto") or ""):
         return None, "NO_ES_CONTINUIDAD_SELECTIVA"
 
-    municipio = _sin_valencia(hallazgo.get("denominacion") or "")
+    municipio = alias_municipio(hallazgo.get("denominacion") or "")
     codigo = _extraer_codigo_proceso(hallazgo.get("extracto") or "")
     compatibles = [
         p for p in candidatos
-        if _sin_valencia(p.get("municipio") or "") == municipio
+        if alias_municipio(p.get("municipio") or "") & municipio
         and _familia_perfil(p.get("denominacion") or "") == familia
     ]
     if not compatibles:

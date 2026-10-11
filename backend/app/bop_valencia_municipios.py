@@ -240,7 +240,8 @@ def _buscar_proceso_seguimiento(cursor, hallazgo: dict[str, Any]) -> tuple[dict[
     )
     candidatos = []
     for p in cursor.fetchall():
-        if _sin(p.get("municipio") or "") != _sin(hallazgo["municipio_detectado"]):
+        formas = {_sin(x).strip() for x in (p.get("municipio") or "").split("/")}
+        if _sin(hallazgo["municipio_detectado"]).strip() not in formas:
             continue
         if _familia_perfil(p.get("denominacion") or "") != familia:
             continue

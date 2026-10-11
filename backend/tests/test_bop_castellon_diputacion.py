@@ -55,6 +55,29 @@ class SeguimientoDiputacionTest(unittest.TestCase):
         self.assertEqual(proceso["id"], 408)
         self.assertEqual(motivo, "UNICO_HITO_SELECTIVO")
 
+    def test_municipio_con_nombre_doble_coincide_con_forma_del_bop(self):
+        hallazgo = {
+            "denominacion": "BENICÀSSIM",
+            "extracto": "Lista provisional admitidos/as Auxiliar Administrativo/a de Administración General.",
+        }
+        candidatos = [{
+            "id": 26,
+            "municipio": "Benicàssim/Benicasim",
+            "denominacion": "Auxiliar Administrativo/a",
+        }]
+        proceso, motivo = seleccionar(hallazgo, candidatos)
+        self.assertEqual(proceso["id"], 26)
+        self.assertEqual(motivo, "UNICO_HITO_SELECTIVO")
+
+    def test_otro_municipio_no_coincide(self):
+        hallazgo = {
+            "denominacion": "NULES",
+            "extracto": "Lista provisional admitidos Auxiliares Administrativos",
+        }
+        candidatos = [{"id": 26, "municipio": "Benicàssim/Benicasim", "denominacion": "Auxiliar Administrativo/a"}]
+        proceso, motivo = seleccionar(hallazgo, candidatos)
+        self.assertIsNone(proceso)
+
 
 if __name__ == "__main__":
     unittest.main()
