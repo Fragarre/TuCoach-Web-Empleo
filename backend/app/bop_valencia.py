@@ -217,6 +217,23 @@ def _tipo(s: str, titulo: str | None = None) -> str:
     return "Proceso selectivo"
 
 
+def _ambito_convocatoria(titulo: str, contenido: str) -> str:
+    """Ámbito administrativo: manda el título oficial si es decisivo.
+
+    Unas bases largas mencionan en algún punto palabras excluyentes («professor»,
+    «conductor», «recaptació»…) y hacían que una oposición administrativa
+    quedara en NO. Solo si el título no decide (REVISION) se usa el texto.
+    """
+    por_titulo = clasificar_ambito_administrativo(
+        {"denominacion": titulo, "cuerpo_escala": None, "grupo": None}
+    )
+    if por_titulo != "REVISION":
+        return por_titulo
+    return clasificar_ambito_administrativo(
+        {"denominacion": contenido, "cuerpo_escala": None, "grupo": None}
+    )
+
+
 def _es_evento_terminal_titulo(titulo: str) -> bool:
     """Conserva publicaciones terminales aunque el filtro general las excluya."""
     n = _sin(titulo)
@@ -454,13 +471,7 @@ def importar_bop_valencia(historico: bool = False, dias: int = 1) -> dict[str, A
                     registro = anuncio["registro"]
                     texto = _obtener_texto(client, anuncio["url"])
                     contenido = titulo + " " + texto
-                    ambito_administrativo = clasificar_ambito_administrativo(
-                        {
-                            "denominacion": contenido,
-                            "cuerpo_escala": None,
-                            "grupo": None,
-                        }
-                    )
+                    ambito_administrativo = _ambito_convocatoria(titulo, contenido)
                     turno = _turno(contenido)
                     es_oportunidad = _es_oportunidad_administrativa(
                         ambito_administrativo,
