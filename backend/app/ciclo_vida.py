@@ -119,8 +119,8 @@ _RE_DESIERTO = re.compile(
 
 # Nombramiento / toma de posesión / adjudicación definitiva (acto final).
 _RE_NOMBRAMIENTO = re.compile(
-    r"\bnombramiento\s+(?:como|de)\s+funcionari[oa]s?\b"
-    r"|\bnomenament\s+(?:com a|de)\s+funcionari[s]?\b"
+    r"\bnombramiento\s+(?:(?:como|de)\s+)?funcionari[oa]s?\b"
+    r"|\bnomenament\s+(?:(?:com a|de)\s+)?funcionari[s]?\b"
     r"|\bnombramiento\s+mediante\s+concurso\b|\bnomenament\s+mitjancant\s+concurs\b"
     r"|\btoma de posesion\b|\bpresa de possessio\b"
     r"|\badjudicacion\s+definitiva\b|\badjudicacio\s+definitiva\b"

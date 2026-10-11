@@ -538,6 +538,14 @@ def preparar_importacion_bop_castellon(
                 "municipio": municipio,
                 "vinculacion": motivo,
                 "proceso_id": proceso["id"] if proceso else None,
+                # Informe de simulación: permite auditar el emparejamiento.
+                "fecha_publicacion": str(fecha_publicacion),
+                "titulo": (hallazgo.get("titulo") or "")[:220],
+                "cerraria_como": (
+                    clasificar_evento_terminal(
+                        proceso.get("tipo_proceso"), hallazgo.get("titulo") or ""
+                    ) if proceso else None
+                ),
             })
 
         connection.rollback()
