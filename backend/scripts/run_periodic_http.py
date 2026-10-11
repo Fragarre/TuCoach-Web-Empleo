@@ -11,6 +11,7 @@ de un timeout de petición, y el código de salida refleja el resultado real:
 Ordinario (cron diario):      python scripts/run_periodic_http.py --aplicar
 Carga histórica inicial:      python scripts/run_periodic_http.py --aplicar --historico --dias 730
 Solo revisar (no escribe):    python scripts/run_periodic_http.py
+Solo ADC (barato, frecuente): python scripts/run_periodic_http.py --aplicar --solo gva_adc
 """
 from __future__ import annotations
 
@@ -55,6 +56,11 @@ def main() -> int:
         action="store_true",
         help="Autoriza una ventana superior a 30 días (carga inicial); desactiva notificaciones",
     )
+    parser.add_argument(
+        "--solo",
+        choices=["gva_adc"],
+        help="Ejecuta solo esa fuente (con avisos de seguimiento). gva_adc: anuncios de difícil cobertura",
+    )
     args = parser.parse_args()
 
     try:
@@ -62,6 +68,7 @@ def main() -> int:
             aplicar=args.aplicar,
             dias_solape=args.dias,
             historico=args.historico,
+            solo=args.solo,
         )
     except ValueError as exc:
         print(f"Parámetros no válidos: {exc}", file=sys.stderr)

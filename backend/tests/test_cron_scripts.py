@@ -55,10 +55,16 @@ class CronDirectoTest(unittest.TestCase):
         with patch.object(directo, "ejecutar_periodico", return_value=payload("OK")) as ejecutar, \
              patch.object(sys, "argv", ["x", "--aplicar", "--historico", "--dias", "730"]), patch("builtins.print"):
             directo.main()
-        ejecutar.assert_called_once_with(aplicar=True, dias_solape=730, historico=True)
+        ejecutar.assert_called_once_with(aplicar=True, dias_solape=730, historico=True, solo=None)
 
 
 class CronHttpTest(unittest.TestCase):
+    def test_solo_gva_adc_se_pasa_al_ciclo(self):
+        with patch.object(directo, "ejecutar_periodico", return_value=payload("OK")) as ejecutar, \
+             patch.object(sys, "argv", ["x", "--aplicar", "--solo", "gva_adc"]), patch("builtins.print"):
+            directo.main()
+        ejecutar.assert_called_once_with(aplicar=True, dias_solape=7, historico=False, solo="gva_adc")
+
     def test_sin_secreto(self):
         with patch.object(http, "SECRET", None), patch("builtins.print"):
             self.assertEqual(http.main(), 2)

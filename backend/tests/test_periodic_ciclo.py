@@ -125,6 +125,22 @@ class CicloPeriodicoTest(unittest.TestCase):
             ejecutar_periodico(aplicar=True, hoy=HOY)
         self.assertEqual(p["finalizar_ciclo"].call_args.args[1], "CON_ERRORES")
 
+    def test_solo_gva_adc_ejecuta_unicamente_los_adc_y_conserva_los_avisos(self):
+        p = _parches()
+        with parchear(p):
+            r = ejecutar_periodico(aplicar=True, hoy=HOY, solo="gva_adc")
+        self.assertEqual(set(r["estado_fuentes"]), {"gva_adc"})
+        p["persistir_adc_gva"].assert_called_once()
+        for ajena in ("importar_bop_valencia", "importar_bop_castellon", "importar_gva_estatal",
+                      "persistir_bolsas_gva_complementarias", "persistir_cesiones_gva",
+                      "persistir_oposiciones_gva_sede", "reconciliar_cierres"):
+            p[ajena].assert_not_called()
+        p["enviar_avisos_novedades"].assert_called_once()  # los avisos a quien sigue bolsas
+
+    def test_solo_desconocido_se_rechaza(self):
+        with parchear(_parches()), self.assertRaises(ValueError):
+            ejecutar_periodico(aplicar=True, hoy=HOY, solo="cualquier_cosa")
+
     def test_reconciliacion_se_ejecuta_la_ultima_y_con_el_modo_del_ciclo(self):
         p = _parches()
         with parchear(p):

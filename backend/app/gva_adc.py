@@ -184,14 +184,15 @@ def _extraer_bolsas_texto_oficial(texto: str) -> list[str]:
         for ref in patron_ref.findall(m.group(1)):
             halladas.add(ref.upper().replace(" ", ""))
 
-    # Listado estructurado tras "següents borses" / "siguientes bolsas".
-    patron_bloque = re.compile(
-        r"(?:seguents\s+borses|siguientes\s+bolsas).*?:\s*(.*?)"
-        r"(?=\n\s*(?:el\s+termini|el\s+plazo)\b)",
-        re.I | re.S,
-    )
-    for bloque in patron_bloque.findall(normalizado):
-        for ref in re.findall(r"(?m)^\s*(\d{2,4}-[bl])\.", bloque, re.I):
+    # Listado estructurado tras "següents borses" / "siguientes bolsas". No se
+    # exige un cierre concreto del bloque: unos documentos lo terminan con "El
+    # plazo..." y otros con "NO PODRÁN SOLICITAR...", y el PDF puede desordenar
+    # las últimas líneas. Se leen las líneas "NNN-B." / "NNN-L." del tramo
+    # posterior al encabezado (acotado para no recorrer anexos enteros).
+    patron_marca = re.compile(r"(?:seguents\s+borses|siguientes\s+bolsas)", re.I)
+    for marca in patron_marca.finditer(normalizado):
+        tramo = normalizado[marca.end(): marca.end() + 6000]
+        for ref in re.findall(r"(?m)^\s*(\d{2,4}-[bl])\.", tramo, re.I):
             halladas.add(ref.upper())
 
     return sorted(halladas)

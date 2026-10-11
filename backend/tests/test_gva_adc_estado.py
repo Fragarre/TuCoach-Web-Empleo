@@ -103,6 +103,42 @@ class EstadoProcesoAdcTest(unittest.TestCase):
             "1/26",
         )
 
+    def test_listado_adc_204_26_sin_cierre_plazo_y_lineas_desordenadas(self) -> None:
+        texto = """
+        ¡¡IMPORTANTE!! SÓLO PUEDEN SOLICITAR LOS PUESTOS, LOS
+        INTEGRANTES DE LAS SIGUIENTES BOLSAS (por orden):
+
+        790-B. A2-01. Gestión. Modalidad Estabilización (OOP 2021)
+        691-B. Cuerpo A2 -01. Gestión. Modalidad de Estabilización (OOP
+        2017 y 2018)
+        426-B. Cuerpo A2-01 gestión de administración general (OEP-15). [A2-
+        01.]
+        413-B. Cuerpo A2-01 Admón. General participantes en OEP-15 i LIBRE
+        restringida. [A2-01.]
+        832-L. C uerpo A2-01. Técnico Gestión (OOP-24). Listado aprobados
+        2ej. 13 y 14/24
+        834-L. Cuerpo A2-01. Técnico Gestión (OOP-23). Listado aprobados
+        2ej. 8 y 28/23
+        836-L. C uerpo A2-01. Técnico Gestión (OOP-22). Listado aprobados
+        2ej. 1 y 2/22
+        833-L. Cuerpo A2-01. Técnico Gestión (OOP-24). Listado aprobados
+        1ej. 13 y 14/24
+
+        NO PODRAN SOL·LICITAR  aquests llocs aquelles persones.
+        TERMINI PRESENTACIÓ: Fins al 15 d’octubre de 2026 a les 23:59 hores
+        València, 8 d’octubre de 2026
+        835-L. Cuerpo A2-01. Técnico Gestión (OOP-23). Listado aprobados
+        1ej. 8 y 28/23
+        837-L. Cuerpo A2-01. Técnico Gestión (OOP-22). Listado aprobados
+        1ej. 1 y 2/22
+        NO PODRÁN SOLICITAR  estos puestos aquellas personas.
+        """
+        self.assertEqual(
+            _extraer_bolsas_texto_oficial(texto),
+            ["413-B", "426-B", "691-B", "790-B", "832-L", "833-L",
+             "834-L", "835-L", "836-L", "837-L"],
+        )
+
     def test_conserva_bolsas_previas_si_etapa_actual_no_aporta_bolsas(self) -> None:
         bolsas, evidencia = _relacion_bolsas_efectiva(
             [],

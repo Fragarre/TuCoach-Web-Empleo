@@ -37,6 +37,11 @@ DIAS_SOLAPE_DEFECTO = 7
 LIMITE_DIAS_ORDINARIO = 30
 
 
+# Fuentes que pueden lanzarse aisladas (``--solo``) con todo el aparato del ciclo
+# (exclusión mutua, trazabilidad y avisos de seguimiento).
+FUENTES_SOLO = frozenset({"gva_adc"})
+
+
 def _validar_dias_solape(*, dias_solape: int, historico: bool) -> None:
     """Protege el cron ordinario y exige una intención explícita para históricos."""
     if dias_solape < 1:
@@ -188,6 +193,7 @@ def _ejecutar_ciclo(
     dias_solape: int = DIAS_SOLAPE_DEFECTO,
     historico: bool = False,
     ultimos_exitos: dict[str, date] | None = None,
+    solo: str | None = None,
 ) -> dict[str, Any]:
     """Orquesta las fuentes validadas de Empleo con aislamiento por fuente.
 
@@ -249,6 +255,8 @@ def _ejecutar_ciclo(
         return fecha_hoy - timedelta(days=dias_de(nombre) - 1)
 
     def registrar(nombre: str, funcion: Callable[[], Any]) -> None:
+        if solo and nombre != solo:
+            return
         inicio = time.monotonic()
         logging.getLogger(__name__).warning("PERIODIC INICIO fuente=%s", nombre)
         valor, estado = _ejecutar_fuente(funcion)
@@ -262,6 +270,15 @@ def _ejecutar_ciclo(
         resultado["fuentes"][nombre] = valor
         resultado["estado_fuentes"][nombre] = estado
         resultado["duraciones_fuentes_segundos"][nombre] = round(duracion, 1)
+
+    # Revisión frecuente y barata de los anuncios de difícil cobertura (duran
+    # pocos días): solo se ejecuta con ``solo="gva_adc"``. En el ciclo completo
+    # los ADC ya van dentro de la fuente "gva".
+    if solo == "gva_adc":
+        registrar(
+            "gva_adc",
+            lambda: ejecutar_organismo("gva_adc", hoy=fecha_hoy, dias=dias_de("gva_adc"), aplicar=aplicar),
+        )
 
     registrar(
         "bop_valencia_diputacion",
@@ -425,6 +442,7 @@ def ejecutar_periodico(
     hoy: date | None = None,
     dias_solape: int = DIAS_SOLAPE_DEFECTO,
     historico: bool = False,
+    solo: str | None = None,
 ) -> dict[str, Any]:
     """Punto de entrada del ciclo: exclusión mutua + ventanas + trazabilidad.
 
@@ -433,6 +451,8 @@ def ejecutar_periodico(
     ``ciclo.omitido`` sin tocar nada.
     """
     _validar_dias_solape(dias_solape=dias_solape, historico=historico)
+    if solo is not None and solo not in FUENTES_SOLO:
+        raise ValueError(f"solo debe ser una de {sorted(FUENTES_SOLO)}")
     ciclo_id: int | None = None
     info_ciclo: dict[str, Any] = {"disponible": True}
     if aplicar:
@@ -452,6 +472,7 @@ def ejecutar_periodico(
             dias_solape=dias_solape,
             historico=historico,
             ultimos_exitos=exitos,
+            solo=solo,
         )
     except Exception as exc:
         finalizar_ciclo(ciclo_id, "CON_ERRORES", {"excepcion": f"{type(exc).__name__}: {str(exc)[:500]}"})
