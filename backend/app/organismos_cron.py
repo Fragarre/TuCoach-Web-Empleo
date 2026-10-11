@@ -19,6 +19,7 @@ from .gva_bolsas_complementarias import persistir_bolsas_gva_complementarias
 from .gva_cesion_datos import persistir_cesiones_gva
 from .gva_bolsas_seguimiento import actualizar_bolsas_gva_simplificadas
 from .gva_estatal_service import importar_gva_estatal
+from .gva_oposiciones_sede import persistir_oposiciones_gva_sede
 
 
 DIAS_SOLAPE_DEFECTO = 7
@@ -26,6 +27,7 @@ DIAS_SOLAPE_DEFECTO = 7
 ORGANISMOS = (
     "gva",
     "gva_oportunidades",
+    "gva_estatal",
     "gva_bolsas",
     "gva_adc",
     "gva_cesiones",
@@ -72,26 +74,23 @@ def ejecutar_gva(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
         "componentes": {},
     }
     _feedback(f"GVA iniciada | periodo {desde.isoformat()} → {hasta.isoformat()} | aplicar={aplicar}")
-    resultado["componentes"]["oportunidades"] = _ejecutar_componente(
-        "GVA oportunidades",
-        lambda: importar_gva_estatal(desde=desde, hasta=hasta, aplicar=aplicar),
+    # Cada componente es independiente: si uno falla, los demás se ejecutan igualmente
+    # (antes un fallo temprano dejaba sin actualizar bolsas, ADC y cesiones) y el
+    # error se propaga al final para que la fuente quede marcada en ERROR.
+    componentes = (
+        ("oportunidades", "GVA oportunidades", lambda: persistir_oposiciones_gva_sede(dias=dias, aplicar=aplicar, hoy=hoy)),
+        ("bolsas", "GVA bolsas", lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar)),
+        ("adc", "GVA ADC", lambda: persistir_adc_gva(aplicar=aplicar)),
+        ("cesiones", "GVA cesiones", lambda: persistir_cesiones_gva(aplicar=aplicar)),
+        ("bolsas_seguimiento", "GVA seguimiento de bolsas", lambda: actualizar_bolsas_gva_simplificadas(aplicar=aplicar)),
     )
-    resultado["componentes"]["bolsas"] = _ejecutar_componente(
-        "GVA bolsas",
-        lambda: persistir_bolsas_gva_complementarias(aplicar=aplicar),
-    )
-    resultado["componentes"]["adc"] = _ejecutar_componente(
-        "GVA ADC",
-        lambda: persistir_adc_gva(aplicar=aplicar),
-    )
-    resultado["componentes"]["cesiones"] = _ejecutar_componente(
-        "GVA cesiones",
-        lambda: persistir_cesiones_gva(aplicar=aplicar),
-    )
-    resultado["componentes"]["bolsas_seguimiento"] = _ejecutar_componente(
-        "GVA seguimiento de bolsas",
-        lambda: actualizar_bolsas_gva_simplificadas(aplicar=aplicar),
-    )
+    fallos: dict[str, str] = {}
+    for clave, nombre, funcion in componentes:
+        try:
+            resultado["componentes"][clave] = _ejecutar_componente(nombre, funcion)
+        except Exception as exc:
+            fallos[clave] = f"{type(exc).__name__}: {exc}"
+            resultado["componentes"][clave] = {"error": fallos[clave]}
     if aplicar and os.getenv("EMPLOYMENT_CLASSIFICATION_ENRICHMENT", "false").lower() == "true":
         from .clasificacion_auditoria import revisar_clasificacion_puestos
 
@@ -103,20 +102,34 @@ def ejecutar_gva(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
                 ordenar_por_reciente=True,
             ),
         )
+    if fallos:
+        detalle = "; ".join(f"{k}: {v}" for k, v in fallos.items())
+        _feedback(f"GVA finalizada CON ERRORES: {detalle}")
+        raise RuntimeError(f"GVA: fallaron componentes ({detalle})")
     _feedback("GVA finalizada correctamente")
     return resultado
 
 
 def ejecutar_gva_oportunidades(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
-    """Ejecuta exclusivamente Oportunidades GVA, incluyendo su seguimiento DOGV."""
+    """Oposiciones GVA desde el buscador autonómico de la Sede (sede.gva.es)."""
     desde, hasta = _rango(hoy=hoy, dias=dias)
     _feedback(f"GVA oportunidades iniciada | periodo {desde.isoformat()} → {hasta.isoformat()} | aplicar={aplicar}")
     resultado = _ejecutar_componente(
         "GVA oportunidades",
-        lambda: importar_gva_estatal(desde=desde, hasta=hasta, aplicar=aplicar),
+        lambda: persistir_oposiciones_gva_sede(dias=dias, aplicar=aplicar, hoy=hoy),
     )
     _feedback("GVA oportunidades finalizada correctamente")
     return {"organismo": "gva_oportunidades", "componente": "oportunidades", "desde": desde.isoformat(), "hasta": hasta.isoformat(), "resultado": resultado}
+
+
+def ejecutar_gva_estatal(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
+    """Descubrimiento antiguo por el portal estatal (ya no forma parte del ciclo)."""
+    desde, hasta = _rango(hoy=hoy, dias=dias)
+    resultado = _ejecutar_componente(
+        "GVA estatal (heredado)",
+        lambda: importar_gva_estatal(desde=desde, hasta=hasta, aplicar=aplicar),
+    )
+    return {"organismo": "gva_estatal", "desde": desde.isoformat(), "hasta": hasta.isoformat(), "resultado": resultado}
 
 
 def ejecutar_gva_bolsas(*, hoy: date, dias: int, aplicar: bool) -> dict[str, Any]:
@@ -234,6 +247,7 @@ def ejecutar_ayuntamientos_castellon(*, hoy: date, dias: int, aplicar: bool) -> 
 EJECUTORES: dict[str, Callable[..., dict[str, Any]]] = {
     "gva": ejecutar_gva,
     "gva_oportunidades": ejecutar_gva_oportunidades,
+    "gva_estatal": ejecutar_gva_estatal,
     "gva_bolsas": ejecutar_gva_bolsas,
     "gva_adc": ejecutar_gva_adc,
     "gva_cesiones": ejecutar_gva_cesiones,

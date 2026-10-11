@@ -34,6 +34,31 @@ EXCLUSIONES = (
 )
 
 
+ESPECIALIDADES_EXCLUIDAS = (
+    (r"\bAPT[- ]", "especialidad_apt"),
+    (r"\bC1-07\b", "especialidad_c1_07"),
+    (r"\bC2-01-02\b", "especialidad_c2_01_02"),
+    (r"\bC2-01-EDU\b|\bC1-01-EDU\b", "sector_educacion"),
+    (r"protocolo", "especialidad_protocolo"),
+    (r"orientador(?:a)? laboral", "especialidad_orientacion_laboral"),
+    (r"comunicacion y relaciones informativas", "especialidad_comunicacion"),
+    (r"fondos europeos", "especialidad_fondos_europeos"),
+    (r"agentes tributarios", "especialidad_agentes_tributarios"),
+    (r"asistencia al contribuyente", "especialidad_tributaria"),
+    (r"discapacidad intelectual", "turno_discapacidad_intelectual"),
+)
+
+
+def motivo_especialidad(denominacion_norm: str) -> str | None:
+    """Motivo por el que una denominación es una especialidad/sector fuera del
+    ámbito administrativo general (None si no lo es). Compartido por bolsas y
+    oposiciones de la Sede GVA."""
+    for patron, motivo in ESPECIALIDADES_EXCLUIDAS:
+        if re.search(patron, denominacion_norm, re.I):
+            return motivo
+    return None
+
+
 def _sin_acentos(texto: str) -> str:
     normalizado = unicodedata.normalize("NFD", texto or "")
     return "".join(
@@ -141,26 +166,7 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
     # El código por sí solo no basta: la búsqueda GVA también devuelve
     # especialidades/APT y bolsas sectoriales que contienen A1-01/A2-01/C1-01/C2-01.
     # Este complemento se limita a los cuerpos administrativos generales.
-    especialidad = next(
-        (
-            motivo
-            for patron, motivo in (
-                (r"\bAPT[- ]", "especialidad_apt"),
-                (r"\bC1-07\b", "especialidad_c1_07"),
-                (r"\bC2-01-02\b", "especialidad_c2_01_02"),
-                (r"\bC2-01-EDU\b|\bC1-01-EDU\b", "sector_educacion"),
-                (r"protocolo", "especialidad_protocolo"),
-                (r"orientador(?:a)? laboral", "especialidad_orientacion_laboral"),
-                (r"comunicacion y relaciones informativas", "especialidad_comunicacion"),
-                (r"fondos europeos", "especialidad_fondos_europeos"),
-                (r"agentes tributarios", "especialidad_agentes_tributarios"),
-                (r"asistencia al contribuyente", "especialidad_tributaria"),
-                (r"discapacidad intelectual", "turno_discapacidad_intelectual"),
-            )
-            if re.search(patron, denominacion_norm, re.I)
-        ),
-        None,
-    )
+    especialidad = motivo_especialidad(denominacion_norm)
 
     proceso["cuerpo_escala"] = codigos[0] if len(codigos) == 1 else None
     proceso["ambito_administrativo"] = "SI" if codigos and especialidad is None else "NO"
