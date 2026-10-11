@@ -278,11 +278,18 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     }
 
 
-def _estado_proceso_adc(etapa_actual: str | None) -> str:
-    """Deriva actividad del ADC solo de evidencias oficiales inequívocas."""
+def _estado_proceso_adc(etapa_actual: str | None, motivo_accionabilidad: str | None = None) -> str:
+    """Deriva actividad del ADC solo de evidencias oficiales inequívocas.
+
+    Un ADC dura pocos días: con el plazo de solicitudes cerrado (acreditado
+    por la ficha oficial o por su fecha de cierre) ya no es una oportunidad y
+    pasa a FINALIZADO. Se conserva en la base de datos, pero deja de mostrarse.
+    """
     etapa = _sin_acentos(etapa_actual or "")
     if "anulacion" in etapa or "anul·lacio" in etapa or "anullacio" in etapa:
         return "ANULADO"
+    if motivo_accionabilidad == "PLAZO_CERRADO":
+        return "FINALIZADO"
     return "EN_CURSO"
 
 
@@ -348,7 +355,7 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
         "accionable": accion["accionable"],
         "motivo_accionabilidad": accion["motivo_accionabilidad"],
         "etapa_actual_gva": etapas["etapa_actual"],
-        "estado_proceso": _estado_proceso_adc(etapas["etapa_actual"]),
+        "estado_proceso": _estado_proceso_adc(etapas["etapa_actual"], accion["motivo_accionabilidad"]),
         "estado_plazo": etapas["estado_plazo"],
         "fechas_publicacion": etapas["fechas_publicacion"],
         "documentos_pdf": etapas["documentos_pdf"],
@@ -923,9 +930,11 @@ def persistir_adc_gva(*, aplicar: bool = False) -> dict[str, Any]:
 
             # Baseline histórico silencioso: una ADC que entra por primera vez y
             # ya no es accionable se registra, pero no genera novedades en bolsas.
+            # Solo se publica en las bolsas un ADC con plazo abierto: uno caducado
+            # no es una novedad (p. ej. al pasar a FINALIZADO).
             publicar_en_bolsas = (
                 not accion.get("baseline_adc", False)
-                and (accion["accion"] == "ACTUALIZAR" or bool(adc["accionable"]))
+                and bool(adc["accionable"])
             )
             if publicar_en_bolsas:
                 huella = _huella_novedad_adc(adc)

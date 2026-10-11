@@ -47,6 +47,22 @@ class EstadoProcesoAdcTest(unittest.TestCase):
             "EN_CURSO",
         )
 
+    def test_plazo_cerrado_finaliza_el_adc(self) -> None:
+        self.assertEqual(
+            _estado_proceso_adc("Adjudicación difícil cobertura", "PLAZO_CERRADO"),
+            "FINALIZADO",
+        )
+
+    def test_plazo_abierto_o_pendiente_sigue_en_curso(self) -> None:
+        for motivo in ("PLAZO_ABIERTO", "PLAZO_PENDIENTE", "PLAZO_NO_ACREDITADO", None):
+            self.assertEqual(_estado_proceso_adc("Anuncio", motivo), "EN_CURSO")
+
+    def test_anulacion_prevalece_sobre_plazo_cerrado(self) -> None:
+        self.assertEqual(
+            _estado_proceso_adc("Anulación de anuncio difícil cobertura", "PLAZO_CERRADO"),
+            "ANULADO",
+        )
+
     def test_extrae_bolsa_singular_de_adjudicacion(self) -> None:
         texto = "A1-01. Cuerpo Superior de Administración (Val, Al, Cas). Bolsa 444"
         self.assertEqual(_extraer_bolsas_texto_oficial(texto), ["444"])
