@@ -232,6 +232,28 @@ def descubrir_oposiciones(client, *, desde: date | None, hasta: date | None) -> 
 
 
 # ----------------------------------------------------------------------- ficha --
+_PATRONES_PLAZAS_TOTALES = (
+    # Formato A: "Núm. de plazas totales 29"
+    r"N[úu]m\.?\s+de\s+plazas\s+totales\s*:?\s*(\d[\d.]*)",
+    # Formato B: "Nº plazas totales: 122" / "Número de plazas totales: 122"
+    r"(?:N[º°o]\.?|N[úu]mero)\s*(?:de\s+)?plazas\s+totales\s*:?\s*(\d[\d.]*)",
+    # Resumen: "Plazas 122 Descripción de plazas"
+    r"\bPlazas\s+(\d[\d.]*)\s+Descripci[óo]n\s+de\s+plazas",
+)
+
+
+def extraer_plazas_totales(texto: str) -> int | None:
+    """Total de plazas de una ficha de la Sede (admite los dos formatos vistos)."""
+    for patron in _PATRONES_PLAZAS_TOTALES:
+        m = re.search(patron, texto or "", re.I)
+        if m:
+            valor = _entero(m.group(1))
+            if valor:
+                return valor
+    return None
+
+
+
 def parsear_ficha(html: str, id_emp: int, url: str | None = None) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     raiz = soup.select_one("div.datosOposicion") or soup
@@ -291,7 +313,7 @@ def parsear_ficha(html: str, id_emp: int, url: str | None = None) -> dict[str, A
     titulo = re.sub(r"^Detalle\s+", "", titulo)
     sia = re.search(r"Código SIA\s*:\s*(\d+)", texto)
     gva = re.search(r"Código GVA\s*:\s*(\d+)", texto)
-    plazas = re.search(r"Núm\. de plazas totales\s*([\d.]+)", texto)
+    plazas = extraer_plazas_totales(texto)
     dogv = re.search(r"Publicación DOGV\s*núm\.\s*(\d+)\s*de\s*(\d{2}-\d{2}-\d{4})", texto)
     dogv_enlace = None
     for a in soup.select("a[href*='dogv.gva.es']"):
@@ -311,7 +333,7 @@ def parsear_ficha(html: str, id_emp: int, url: str | None = None) -> dict[str, A
         "convocatoria": convocatoria,
         "prueba": prueba,
         "grupo": grupo_m.group(1).upper() if grupo_m else None,
-        "plazas": _entero(plazas.group(1)) if plazas else None,
+        "plazas": plazas,
         "dogv_numero": dogv.group(1) if dogv else None,
         "dogv_fecha": _fecha(dogv.group(2)).isoformat() if dogv and _fecha(dogv.group(2)) else None,
         "dogv_url": dogv_enlace,
@@ -473,6 +495,7 @@ def construir_proceso(tarjeta: dict[str, Any] | None, ficha: dict[str, Any]) -> 
         "cuerpo_escala": codigo_unico,
         "grupo": grupo,
         "turno": ambito["turno"],
+        "plazas": ficha.get("plazas") or (tarjeta or {}).get("plazas"),
         "anio_convocatoria": anio,
         "fecha_apertura": apertura,
         "fecha_cierre": cierre,
@@ -573,12 +596,12 @@ def _insertar(cursor, organismo_id: int, fuente_id: int, p: dict[str, Any]) -> i
         """
         INSERT INTO procesos (
             organismo_id,codigo_externo,identificador_estable,denominacion,
-            cuerpo_escala,grupo,tipo_proceso,turno,estado,
+            cuerpo_escala,grupo,tipo_proceso,turno,plazas,estado,
             anio_convocatoria,fecha_apertura,fecha_cierre,ultima_publicacion_at,
             fuente_principal_id,datos_json,es_oportunidad,origen_dato,
             revision_estado,ambito_administrativo,created_at,updated_at
         ) VALUES (
-            %s,%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',
+            %s,%s,%s,%s,%s,%s,%s,%s,%s,'EN_CURSO',
             %s,%s,%s,%s,%s,%s,TRUE,'AUTOMATICO','PUBLICADA','SI',NOW(),NOW()
         )
         ON CONFLICT (identificador_estable) DO NOTHING
@@ -586,7 +609,7 @@ def _insertar(cursor, organismo_id: int, fuente_id: int, p: dict[str, Any]) -> i
         """,
         (
             organismo_id, p["codigo_externo"], p["identificador_estable"], p["denominacion"],
-            p["cuerpo_escala"], p["grupo"], p["tipo_proceso"], p["turno"], p["anio_convocatoria"], p["fecha_apertura"],
+            p["cuerpo_escala"], p["grupo"], p["tipo_proceso"], p["turno"], p["plazas"], p["anio_convocatoria"], p["fecha_apertura"],
             p["fecha_cierre"], p["ultima_publicacion"], fuente_id, Jsonb(p["datos_json"]),
         ),
     )
@@ -599,6 +622,7 @@ def _refrescar(cursor, proceso_id: int, p: dict[str, Any]) -> None:
         f"""
         UPDATE procesos
         SET denominacion=%s,
+            plazas=COALESCE(%s,plazas),
             fecha_apertura=COALESCE(%s,fecha_apertura),
             fecha_cierre=COALESCE(%s,fecha_cierre),
             ultima_publicacion_at=COALESCE(%s,ultima_publicacion_at),
@@ -606,7 +630,7 @@ def _refrescar(cursor, proceso_id: int, p: dict[str, Any]) -> None:
             updated_at=NOW()
         WHERE id=%s AND LOWER(COALESCE(estado,'')) NOT IN {ciclo_vida.ESTADOS_TERMINALES_SQL_IN}
         """,
-        (p["denominacion"], p["fecha_apertura"], p["fecha_cierre"], p["ultima_publicacion"],
+        (p["denominacion"], p["plazas"], p["fecha_apertura"], p["fecha_cierre"], p["ultima_publicacion"],
          Jsonb(p["datos_json"]), proceso_id),
     )
 
