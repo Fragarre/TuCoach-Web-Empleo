@@ -433,8 +433,28 @@ def _clasificar(client, id_emp: int, url: str, html: str) -> dict[str, Any]:
     }
 
 
-def inventariar_adc_gva() -> dict[str, Any]:
-    """Descubre y clasifica ADC sin consultar ni modificar la base de datos."""
+def _ids_emp_adc_terminales() -> set[int]:
+    """id_emp de ADC ya resueltos (finalizados/anulados): no hace falta releer su ficha."""
+    from .ciclo_vida import es_estado_terminal
+
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT p.estado, p.datos_json->>'id_emp'
+            FROM procesos p
+            WHERE p.datos_json->>'categoria_gva' = 'ADC'
+              AND COALESCE(p.datos_json->>'id_emp', '') ~ '^[0-9]+$'
+            """
+        )
+        return {int(id_emp) for estado, id_emp in cursor.fetchall() if es_estado_terminal(estado)}
+
+
+def inventariar_adc_gva(omitir_id_emp: set[int] | None = None) -> dict[str, Any]:
+    """Descubre y clasifica ADC sin consultar ni modificar la base de datos.
+
+    ``omitir_id_emp``: fichas que no se vuelven a descargar (ADC ya terminales);
+    ahorra peticiones, y con ellas tráfico de proxy, en las ejecuciones frecuentes."""
+    omitir_id_emp = omitir_id_emp or set()
     descubiertos: dict[int, str] = {}
     diagnostico: list[dict[str, Any]] = []
 
@@ -454,6 +474,8 @@ def inventariar_adc_gva() -> dict[str, Any]:
         validos: list[dict[str, Any]] = []
         excluidos: list[dict[str, Any]] = []
         for id_emp, url in sorted(descubiertos.items()):
+            if id_emp in omitir_id_emp:
+                continue
             try:
                 respuesta = _get_gva_con_reintentos(client, url, intentos=1)
                 item = _clasificar(client, id_emp, url, respuesta.text)
@@ -472,6 +494,7 @@ def inventariar_adc_gva() -> dict[str, Any]:
         "escrituras_bd": False,
         "notificaciones": False,
         "descubiertos": len(descubiertos),
+        "omitidos_terminales": len([i for i in descubiertos if i in omitir_id_emp]),
         "validos_empleo": len(validos),
         "con_bolsas_relacionadas": sum(bool(x["bolsas_relacionadas"]) for x in validos),
         "diagnostico": diagnostico,
@@ -500,7 +523,7 @@ def _resolver_identidad_gva_adc(cursor) -> tuple[int, int]:
 
 def planificar_adc_gva() -> dict[str, Any]:
     """Planifica altas/actualizaciones ADC sin escribir en BD."""
-    inventario = inventariar_adc_gva()
+    inventario = inventariar_adc_gva(omitir_id_emp=_ids_emp_adc_terminales())
     validos = inventario["adc_validos"]
     identificadores = [x["identificador_estable"] for x in validos]
     ids_emp = [int(x["id_emp"]) for x in validos]
