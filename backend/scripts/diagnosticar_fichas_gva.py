@@ -43,8 +43,8 @@ def main(ids: list[int]) -> None:
                         f"estado={clas.get('estado')!r} fase={(clas.get('datos_json') or {}).get('fase_gva')!r} "
                         f"categoria={(clas.get('datos_json') or {}).get('categoria_gva')!r}"
                     )
-                    for clave in ("promoci", "restringid", r"acto\s+[uú]nico"):
-                        for m in list(re.finditer(clave, plano, re.I))[:2]:
+                    for clave in ("promoci", "restringid", r"acto\s+[uú]nico", r"plazas?"):
+                        for m in list(re.finditer(clave, plano, re.I))[:(6 if clave == 'plazas?' else 2)]:
                             a, b = max(0, m.start() - 70), m.end() + 70
                             print(f"   contexto «{clave}»: …{plano[a:b]}…")
                 except Exception as exc:
