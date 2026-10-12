@@ -9,6 +9,7 @@ cualquier escritura.
 
 import re
 import unicodedata
+from datetime import date, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -47,6 +48,21 @@ ESPECIALIDADES_EXCLUIDAS = (
     (r"asistencia al contribuyente", "especialidad_tributaria"),
     (r"discapacidad intelectual", "turno_discapacidad_intelectual"),
 )
+
+
+# Exclusiones que se buscan en TODO el texto de la ficha. El resto solo en el título:
+# el historial de etapas de una bolsa legítima puede contener «Adjudicación acto
+# único telemático» y no por eso deja de ser una bolsa de turno libre.
+EXCLUSIONES_EN_TODA_LA_FICHA = ("promocion interna", "dificil cobertura")
+
+
+def motivo_exclusion_texto(denominacion_norm: str, ficha_norm: str) -> str | None:
+    for exclusion in EXCLUSIONES:
+        clave = _sin_acentos(exclusion)
+        texto = ficha_norm if exclusion in EXCLUSIONES_EN_TODA_LA_FICHA else denominacion_norm
+        if clave in texto:
+            return exclusion
+    return None
 
 
 def motivo_especialidad(denominacion_norm: str) -> str | None:
@@ -89,27 +105,73 @@ def _es_tarjeta_bolsa(enlace) -> bool:
     )
 
 
-def _descubrir_por_codigo(client, codigo: str) -> dict[int, str]:
-    respuesta = _get_gva_con_reintentos(
-        client,
-        gva_clean.GVA_SEARCH_URL,
-        params={
-            "convocatoria": "1",
-            "descripcion": codigo,
-            "pagina": "0",
-            "tamanyoPagina": "100",
-            "elementosPaginacion": "100",
-        },
-    )
+MAX_CONSULTAS_DESCUBRIMIENTO = 24
+FECHA_INICIO_DESCUBRIMIENTO = date(2010, 1, 1)
+
+
+def _consulta_busqueda(client, codigo: str, desde: date | None, hasta: date | None, es_tarjeta, intentos: int):
+    params = {
+        "convocatoria": "1",
+        "descripcion": codigo,
+        "pagina": "1",
+        "tamanyoPagina": "100",
+        "elementosPaginacion": "100",
+    }
+    if desde and hasta:
+        params["fechaPublicacionDesde"] = desde.isoformat()
+        params["fechaPublicacionHasta"] = hasta.isoformat()
+    respuesta = _get_gva_con_reintentos(client, gva_clean.GVA_SEARCH_URL, params=params, intentos=intentos)
     soup = BeautifulSoup(respuesta.text, "html.parser")
+    vistos: set[int] = set()
     encontrados: dict[int, str] = {}
     for enlace in soup.select('a[href*="detall-ocupacio-publica"]'):
         href = str(enlace.get("href") or "")
         identificador = _id_emp(href)
-        if identificador is None or not _es_tarjeta_bolsa(enlace):
+        if identificador is None:
             continue
-        encontrados[identificador] = urljoin(gva_clean.GVA_BASE_URL, href)
-    return encontrados
+        vistos.add(identificador)
+        if es_tarjeta(enlace):
+            encontrados[identificador] = urljoin(gva_clean.GVA_BASE_URL, href)
+    texto = " ".join(soup.get_text(" ", strip=True).split())
+    m = re.search(r"([\d.]+)\s+resultados?", texto)
+    total = int(m.group(1).replace(".", "")) if m else None
+    truncado = (total is not None and len(vistos) < total) or len(vistos) >= 100
+    return encontrados, truncado
+
+
+def descubrir_paginado(client, codigo: str, es_tarjeta, *, intentos: int = 3, hoy: date | None = None) -> dict[int, str]:
+    """Búsqueda por texto en la Sede SIN perder resultados.
+
+    La Sede corta cada búsqueda en 100 resultados y NO hace caso a la paginación
+    de esta búsqueda (comprobado: A2-01 tiene 131 y solo devolvía 99). Si el
+    listado viene truncado, se divide el rango de fechas de publicación en dos y se
+    repite. Se conserva además lo de la búsqueda sin fechas por si alguna tarjeta
+    no tuviera fecha de publicación."""
+    hoy = hoy or date.today()
+    encontrados, truncado = _consulta_busqueda(client, codigo, None, None, es_tarjeta, intentos)
+    if not truncado:
+        return encontrados
+    resultado = dict(encontrados)
+    pendientes = [(FECHA_INICIO_DESCUBRIMIENTO, hoy + timedelta(days=366))]
+    consultas = 1
+    while pendientes:
+        desde, hasta = pendientes.pop()
+        consultas += 1
+        if consultas > MAX_CONSULTAS_DESCUBRIMIENTO:
+            raise RuntimeError(f"Demasiadas consultas al dividir la búsqueda «{codigo}» por fechas")
+        parcial, truncado = _consulta_busqueda(client, codigo, desde, hasta, es_tarjeta, intentos)
+        if truncado and desde < hasta:
+            mitad = desde + (hasta - desde) // 2
+            pendientes.append((desde, mitad))
+            pendientes.append((mitad + timedelta(days=1), hasta))
+            resultado.update(parcial)
+            continue
+        resultado.update(parcial)
+    return resultado
+
+
+def _descubrir_por_codigo(client, codigo: str) -> dict[int, str]:
+    return descubrir_paginado(client, codigo, _es_tarjeta_bolsa)
 
 
 def _campo_publico(texto: str, etiqueta: str, siguientes: tuple[str, ...]) -> str | None:
@@ -143,12 +205,9 @@ def _clasificar_detalle(id_emp: int, url: str, html: str) -> dict[str, Any]:
         for codigo in CODIGOS_ADMIN_ESTRICTOS
         if codigo.lower() in normalizado
     ]
-    exclusion = next(
-        (x for x in EXCLUSIONES if _sin_acentos(x) in normalizado),
-        None,
-    )
-    es_bolsa = proceso.get("tipo_proceso") == "Bolsa de trabajo"
     denominacion_norm = _sin_acentos(str(proceso.get("denominacion") or ""))
+    exclusion = motivo_exclusion_texto(denominacion_norm, normalizado)
+    es_bolsa = proceso.get("tipo_proceso") == "Bolsa de trabajo"
     es_cesion = "cesion de datos" in denominacion_norm
     es_adc = (
         "anuncio dificil cobertura" in normalizado

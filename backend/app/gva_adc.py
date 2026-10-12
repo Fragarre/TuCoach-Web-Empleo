@@ -74,27 +74,9 @@ def _es_tarjeta_adc(enlace) -> bool:
 
 
 def _descubrir_por_codigo(client, codigo: str) -> dict[int, str]:
-    respuesta = _get_gva_con_reintentos(
-        client,
-        gva_clean.GVA_SEARCH_URL,
-        params={
-            "convocatoria": "1",
-            "descripcion": codigo,
-            "pagina": "0",
-            "tamanyoPagina": "100",
-            "elementosPaginacion": "100",
-        },
-        intentos=1,
-    )
-    soup = BeautifulSoup(respuesta.text, "html.parser")
-    encontrados: dict[int, str] = {}
-    for enlace in soup.select('a[href*="detall-ocupacio-publica"]'):
-        href = str(enlace.get("href") or "")
-        identificador = _id_emp(href)
-        if identificador is None or not _es_tarjeta_adc(enlace):
-            continue
-        encontrados[identificador] = urljoin(gva_clean.GVA_BASE_URL, href)
-    return encontrados
+    from .gva_bolsas_complementarias import descubrir_paginado
+
+    return descubrir_paginado(client, codigo, _es_tarjeta_adc, intentos=1)
 
 
 def _fecha_iso(valor: Any) -> str | None:
