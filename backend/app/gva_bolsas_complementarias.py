@@ -50,10 +50,19 @@ ESPECIALIDADES_EXCLUIDAS = (
 )
 
 
-# Exclusiones que se buscan en TODO el texto de la ficha. El resto solo en el título:
-# el historial de etapas de una bolsa legítima puede contener «Adjudicación acto
-# único telemático» y no por eso deja de ser una bolsa de turno libre.
-EXCLUSIONES_EN_TODA_LA_FICHA = ("promocion interna", "dificil cobertura")
+# Exclusiones que se buscan en TODO el texto de la ficha: solo «difícil cobertura».
+# El resto (acto único, promoción interna, consultas…) se busca en el TÍTULO:
+# - el historial de etapas de una bolsa legítima puede contener «Adjudicación acto
+#   único telemático»;
+# - los requisitos de una bolsa mixta (p. ej. «convocatoria 22/15 turno libre y 23/15
+#   turno de promoción interna») mencionan la promoción interna y no por eso la bolsa
+#   deja de ser de turno libre. Una bolsa de promoción interna lo dice en su título
+#   («promoción interna» o «PI (OPE-14)»).
+EXCLUSIONES_EN_TODA_LA_FICHA = ("dificil cobertura",)
+_RE_PI_TITULO = re.compile(r"\bpi\b")
+_RE_SOLO_EMPLEADOS_TITULO = re.compile(
+    r"funcionari\w*\s+de\s+carrera|personal\s+(?:contratado\s+)?laboral|laborales\s+fijos"
+)
 
 
 def motivo_exclusion_texto(denominacion_norm: str, ficha_norm: str) -> str | None:
@@ -62,6 +71,12 @@ def motivo_exclusion_texto(denominacion_norm: str, ficha_norm: str) -> str | Non
         texto = ficha_norm if exclusion in EXCLUSIONES_EN_TODA_LA_FICHA else denominacion_norm
         if clave in texto:
             return exclusion
+    if _RE_PI_TITULO.search(denominacion_norm):
+        return "promocion interna"
+    # Acceso reservado a quienes ya tienen plaza («funcionarios de carrera y personal
+    # laboral») y que no se declara de turno libre: fuera del ámbito de Tu Coach.
+    if _RE_SOLO_EMPLEADOS_TITULO.search(denominacion_norm) and "libre" not in denominacion_norm:
+        return "no turno libre"
     return None
 
 

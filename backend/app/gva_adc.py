@@ -652,10 +652,29 @@ def _resolver_bolsas_relacionadas(cursor, referencias: list[str]) -> dict[str, A
         ref = _normalizar_ref_bolsa(referencia)
         if not ref:
             continue
-        # Referencias del tipo 500/22 son convocatorias/bolsas externas y no
-        # se equiparan a un número de bolsa GVA sin evidencia adicional.
+        # Referencias del tipo 500/22: solo se enlazan si el título de una bolsa GVA
+        # lleva exactamente «B-500/22» (p. ej. «Bolsa específica LABORA … (B-500/22)») y
+        # es única. Sin esa evidencia siguen siendo bolsas externas.
         if "/" in ref:
-            no_resueltas.append(ref)
+            cursor.execute(
+                """
+                SELECT id
+                FROM procesos
+                WHERE es_oportunidad=TRUE
+                  AND ambito_administrativo='SI'
+                  AND tipo_proceso='Bolsa de trabajo'
+                  AND denominacion ~* %s
+                ORDER BY id
+                """,
+                (rf"(^|[^0-9A-Za-z])B-{re.escape(ref)}([^0-9]|$)",),
+            )
+            candidatos = list(cursor.fetchall())
+            if len(candidatos) == 1:
+                resueltas[ref] = int(candidatos[0]["id"])
+            elif len(candidatos) > 1:
+                ambiguas[ref] = [int(x["id"]) for x in candidatos]
+            else:
+                no_resueltas.append(ref)
             continue
         m = re.fullmatch(r"(\d{2,4})(?:-?([BL]))?", ref)
         if not m:
