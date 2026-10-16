@@ -20,6 +20,9 @@ class AmbitoPuestosEspecificosTest(unittest.TestCase):
             "Tècnic/a de festes",
             "Técnico/a de Tesorería",
             "Tècnic de tresoreria",
+            "Administrativo/Administrativa Servicios Sociales de la plantilla de personal laboral fijo",
+            "Informador-a tramitador-a",
+            "Informador/a tramitador/a",
         )
         for denominacion in casos:
             with self.subTest(denominacion=denominacion):
@@ -48,6 +51,15 @@ class AmbitoPuestosEspecificosTest(unittest.TestCase):
             clasificar({
                 "denominacion": "Técnico/a de Gestión",
                 "contexto": "Dos plazas de Técnico/a de Gestión, escala de Administración General, subescala de gestión",
+            }),
+            "SI",
+        )
+
+    def test_mencion_a_personal_laboral_en_el_anuncio_no_retira_plaza_funcionarial(self):
+        self.assertEqual(
+            clasificar({
+                "denominacion": "Administrativo/a",
+                "contexto": "Una plaza de Administrativo/a, escala de Administración General. Podrá participar el personal funcionario o laboral",
             }),
             "SI",
         )

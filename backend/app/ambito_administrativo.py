@@ -109,6 +109,12 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos
     patrones_no_puesto = (
         r"tesoreri",
         r"tresoreri",
+        # Contratación laboral (no funcionarial) e informadores-tramitadores:
+        # fuera del catálogo por decisión de producto.
+        r"personal laboral",
+        r"laboral fij",
+        r"\binformador",
+        r"\binformadora",
     )
     if any(re.search(p, puesto) for p in patrones_no_puesto):
         return "NO"
