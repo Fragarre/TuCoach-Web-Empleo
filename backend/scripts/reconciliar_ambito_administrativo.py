@@ -30,8 +30,10 @@ def reconciliar(*, aplicar: bool = False, proceso_ids: list[int] | None = None) 
             params.append(proceso_ids)
         cursor.execute(
             f"""
-            SELECT p.id,p.identificador_estable,p.denominacion,p.cuerpo_escala,p.grupo
+            SELECT p.id,p.identificador_estable,p.denominacion,p.cuerpo_escala,p.grupo,
+                   p.datos_json->>'texto_plaza' AS contexto,o.nombre AS organismo
             FROM procesos p
+            LEFT JOIN organismos o ON o.id=p.organismo_id
             WHERE p.es_oportunidad=TRUE
               AND p.ambito_administrativo='SI'
               {filtro}
@@ -46,6 +48,7 @@ def reconciliar(*, aplicar: bool = False, proceso_ids: list[int] | None = None) 
                 retirar.append({
                     "id": p["id"],
                     "identificador_estable": p["identificador_estable"],
+                    "organismo": p["organismo"],
                     "denominacion": p["denominacion"],
                 })
 

@@ -119,7 +119,12 @@ def _extraer_plaza(fragmento: str) -> dict[str, Any] | None:
     # Normaliza una errata documentada en publicaciones BOE.
     fragmento_clasificacion = re.sub(r"\badminstr", "administr", fragmento, flags=re.I)
     ambito = clasificar_ambito_administrativo(
-        {"denominacion": fragmento_clasificacion, "cuerpo_escala": None, "grupo": None}
+        {
+            "denominacion": re.sub(r"\badminstr", "administr", denominacion, flags=re.I),
+            "cuerpo_escala": None,
+            "grupo": None,
+            "contexto": fragmento_clasificacion,
+        }
     )
     sistema = None
     sm = re.search(r"por el sistema de\s+([^,.;]+)", fragmento, flags=re.I)

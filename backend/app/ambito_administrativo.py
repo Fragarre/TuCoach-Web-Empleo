@@ -20,8 +20,14 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos
     Los casos fronterizos permanecen en REVISION para decisión humana.
     Las exclusiones específicas prevalecen sobre menciones genéricas a la
     escala de administración general.
+
+    ``contexto`` (opcional) es el texto oficial que rodea la plaza (párrafo del
+    BOE, extracto del BOP...). Se usa igual que la escala, pero las exclusiones
+    "solo de puesto" se evalúan únicamente sobre la denominación, para que una
+    mención incidental en el párrafo no retire una plaza de TAG legítima.
     """
-    texto = _normalizar(" ".join(str(proceso.get(k) or "") for k in ("denominacion", "cuerpo_escala", "grupo")))
+    texto = _normalizar(" ".join(str(proceso.get(k) or "") for k in ("denominacion", "cuerpo_escala", "grupo", "contexto")))
+    puesto = _normalizar(str(proceso.get("denominacion") or ""))
 
     # En GVA los códigos de cuerpo son determinantes: solo se admiten los
     # cuatro cuerpos administrativos generales definidos para Tu Coach. Una
@@ -84,8 +90,27 @@ def clasificar_ambito_administrativo(proceso: dict[str, Any], *, aplicar_codigos
         r"agents? tributaris?",
         r"tecnico(?:/a)? tributario",
         r"tecnic(?:/a)? tributari",
+        # Escala de Administración Especial: por definición no es un puesto
+        # administrativo general (p. ej. "relaciones laborales, escala de
+        # Administración Especial, subescala técnica").
+        r"administracion especial",
+        r"administracio especial",
+        r"relaciones laborales",
+        r"relacions laborals",
+        r"\bfiestas?\b",
+        r"\bfestejos\b",
+        r"\bfestes\b",
     )
     if any(re.search(p, texto) for p in patrones_no):
+        return "NO"
+
+    # Perfiles específicos que solo se excluyen si forman parte del nombre del
+    # puesto: una plaza de TAG "adscrita a Tesorería" sigue siendo TAG.
+    patrones_no_puesto = (
+        r"tesoreri",
+        r"tresoreri",
+    )
+    if any(re.search(p, puesto) for p in patrones_no_puesto):
         return "NO"
 
     # Cuerpos y perfiles administrativos en sentido amplio, en castellano y valenciano.
