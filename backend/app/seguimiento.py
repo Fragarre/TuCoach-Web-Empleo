@@ -1,4 +1,6 @@
 import os
+import re
+import unicodedata
 from html import escape
 
 import psycopg
@@ -145,6 +147,47 @@ def cancelar_suscripcion(user_id: UUID, proceso_id: int) -> bool:
     return changed
 
 
+_RUIDO_TEXTO_NOVEDAD = re.compile(
+    r"\s*(?:C[oó]digo\s+GVA|Codi\s+GVA|Descargar\s+informaci[oó]n|Descarregar\s+informaci[oó])\b.*$",
+    re.I | re.S,
+)
+
+
+def _limpiar_texto_novedad(texto: Any) -> Any:
+    """Quita restos de maquetación de la GVA ("Código GVA: 114697 Descargar información")."""
+    if not isinstance(texto, str):
+        return texto
+    return _RUIDO_TEXTO_NOVEDAD.sub("", " ".join(texto.split())).strip(" .:-") or texto
+
+
+def _clave_novedad(item: dict[str, Any]) -> tuple:
+    texto = unicodedata.normalize("NFD", str(_limpiar_texto_novedad(item.get("resumen")) or ""))
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn").lower()
+    texto = re.sub(r"[^a-z0-9]+", " ", texto).strip()
+    return (item.get("proceso_id"), item.get("novedad_tipo"), (item.get("tipo") or "").upper(),
+            (item.get("campo") or "").lower(), texto, item.get("url"))
+
+
+def quitar_novedades_repetidas(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Muestra una sola vez la misma novedad de un mismo proceso (se conserva la primera detectada).
+
+    La GVA a veces vuelve a publicar la misma etapa con otro texto u otra fecha; para el
+    usuario es la misma novedad y no debe verla repetida.
+    """
+    vistos: set[tuple] = set()
+    conservados: list[dict[str, Any]] = []
+    for item in reversed(items):  # de la más antigua a la más reciente
+        clave = _clave_novedad(item)
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        item = dict(item)
+        item["resumen"] = _limpiar_texto_novedad(item.get("resumen"))
+        conservados.append(item)
+    conservados.reverse()
+    return conservados
+
+
 def cambios_usuario(user_id: UUID, *, limite: int = 100) -> list[dict[str, Any]]:
     """Devuelve únicamente novedades sustantivas de convocatorias seguidas.
 
@@ -220,7 +263,7 @@ def cambios_usuario(user_id: UUID, *, limite: int = 100) -> list[dict[str, Any]]
             )
             rows = cursor.fetchall()
             columns = [description.name for description in cursor.description]
-    return [dict(zip(columns, row)) for row in rows]
+    return quitar_novedades_repetidas([dict(zip(columns, row)) for row in rows])
 
 
 def estado_novedades_usuario(user_id: UUID) -> dict[str, Any]:

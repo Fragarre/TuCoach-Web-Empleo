@@ -52,6 +52,29 @@ def _sin_acentos(texto: str) -> str:
     return "".join(c for c in normalizado if unicodedata.category(c) != "Mn").lower()
 
 
+# Restos de la ficha GVA que a veces se pegan al nombre de la etapa según cómo se maqueta
+# la página ("Código GVA: 114697", "Descargar información"). Si no se quitan, la misma
+# etapa parece distinta en dos lecturas y se publica dos veces la misma novedad.
+_RUIDO_ETAPA = re.compile(
+    r"\s*(?:C[oó]digo\s+GVA|Codi\s+GVA|Descargar\s+informaci[oó]n|Descarregar\s+informaci[oó]|"
+    r"Descargar|Descarregar)\b.*$",
+    re.I | re.S,
+)
+
+
+def limpiar_etapa_adc(etapa: str | None) -> str | None:
+    """Nombre de la etapa tal como lo muestra la GVA, sin restos de maquetación."""
+    if not etapa:
+        return etapa
+    limpia = _RUIDO_ETAPA.sub("", " ".join(str(etapa).split())).strip(" .:-")
+    return limpia or None
+
+
+def clave_etapa_adc(etapa: str | None) -> str:
+    """Forma normalizada de la etapa para comparar (sin acentos, mayúsculas ni ruido)."""
+    return re.sub(r"[^a-z0-9]+", " ", _sin_acentos(limpiar_etapa_adc(etapa) or "")).strip()
+
+
 def _es_promocion_interna(texto: str) -> bool:
     normalizado = _sin_acentos(texto)
     return "promocion interna" in normalizado or "promocio interna" in normalizado
@@ -272,11 +295,11 @@ def _datos_etapas(soup: BeautifulSoup, texto: str) -> dict[str, Any]:
     m_etapa = re.search(
         r"Etapa actual\s*:\s*(.+?)"
         r"(?=\s*(?:Data publicaci|Fecha publicaci|Termini|Plazo|Documents?|Documentos?|"
-        r"C[oó]digo SIA|Codi SIA|Convocatoria)\b)",
+        r"C[oó]digo SIA|Codi SIA|C[oó]digo GVA|Codi GVA|Descargar|Descarregar|Convocatoria)\b)",
         texto_lineas,
         re.I | re.S,
     )
-    etapa = " ".join(m_etapa.group(1).split()) if m_etapa else None
+    etapa = limpiar_etapa_adc(" ".join(m_etapa.group(1).split())) if m_etapa else None
     publicaciones = []
     for m in re.finditer(
         r"(?:Data|Fecha)\s+publicaci[^:]*:\s*(\d{2}[-/]\d{2}[-/]\d{4})",
@@ -754,10 +777,36 @@ def _huella_novedad_adc(adc: dict[str, Any]) -> str:
     """Identifica de forma estable la etapa/documento oficial actualmente visible."""
     fechas = adc.get("fechas_publicacion") or []
     documentos = adc.get("documentos_pdf") or []
-    fecha = fechas[0] if fechas else ""
     documento = documentos[0].get("url", "") if documentos else ""
-    etapa = adc.get("etapa_actual_gva") or ""
+    etapa = clave_etapa_adc(adc.get("etapa_actual_gva"))
+    # La fecha solo identifica la etapa cuando no hay documento oficial enlazado: la GVA
+    # puede reescribir la fecha de una misma etapa y eso no es una novedad.
+    fecha = "" if documento else (fechas[0] if fechas else "")
     return f"{fecha}|{etapa}|{documento}"
+
+
+def _etapa_ya_publicada(cursor, *, proceso_id: int, tipo: str, adc: dict[str, Any]) -> bool:
+    """True si ese proceso ya tiene publicada esta misma etapa del ADC (aunque con otro texto).
+
+    Compara por la etapa normalizada, así reconoce también las novedades guardadas antes
+    de limpiar el nombre de la etapa y no las repite.
+    """
+    clave = clave_etapa_adc(adc.get("etapa_actual_gva"))
+    if not clave:
+        return False
+    cursor.execute(
+        """
+        SELECT datos_json->>'etapa_actual_gva' AS etapa
+        FROM publicaciones
+        WHERE proceso_id=%s AND tipo=%s AND datos_json->>'adc_id_emp' = %s
+        """,
+        (proceso_id, tipo, str(adc["id_emp"])),
+    )
+    for fila in cursor.fetchall():
+        etapa_previa = fila["etapa"] if isinstance(fila, dict) else fila[0]
+        if clave_etapa_adc(etapa_previa) == clave:
+            return True
+    return False
 
 
 def _publicacion_adc_en_bolsa(
@@ -786,6 +835,8 @@ def _publicacion_adc_en_bolsa(
         (bolsa_id, fuente_id, referencia),
     )
     if cursor.fetchone() is not None:
+        return False
+    if _etapa_ya_publicada(cursor, proceso_id=bolsa_id, tipo="ADC_RELACIONADO", adc=adc):
         return False
     titulo = (
         f"ADC {adc.get('numero_adc') or adc['id_emp']}: "
@@ -845,6 +896,8 @@ def _publicacion_etapa_adc(
         (proceso_id, fuente_id, referencia),
     )
     if cursor.fetchone() is not None:
+        return False
+    if _etapa_ya_publicada(cursor, proceso_id=proceso_id, tipo="ADC_ETAPA", adc=adc):
         return False
     fechas = adc.get("fechas_publicacion") or []
     cursor.execute(

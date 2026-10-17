@@ -252,6 +252,11 @@ class _CursorPublicaciones:
         self._ultimo = None
 
     def execute(self, sql, params=()):
+        if "adc_id_emp" in sql:  # búsqueda de la misma etapa ya publicada
+            proceso_id, _tipo, id_emp = params
+            self._todas = [(f[6].get("etapa_actual_gva"),) for f in self.filas
+                           if f[0] == proceso_id and str(f[6].get("adc_id_emp")) == str(id_emp)]
+            return
         if "SELECT" in sql:
             proceso_id, fuente_id, referencia = params
             self._ultimo = next(
@@ -263,11 +268,15 @@ class _CursorPublicaciones:
             proceso_id, fuente_id, referencia, _titulo, _fecha, url = params[:6]
             if any((f[1], f[2], f[5]) == (fuente_id, referencia, url) for f in self.filas):
                 raise RuntimeError("uq_publicaciones_fuente_ref_url")
-            self.filas.append((proceso_id, fuente_id, referencia, _titulo, _fecha, url))
+            datos = getattr(params[6], "obj", params[6]) if len(params) > 6 else {}
+            self.filas.append((proceso_id, fuente_id, referencia, _titulo, _fecha, url, datos or {}))
             self._ultimo = {"id": len(self.filas)}
 
     def fetchone(self):
         return self._ultimo
+
+    def fetchall(self):
+        return getattr(self, "_todas", [])
 
 
 class PublicacionAdcEnVariasBolsasTest(unittest.TestCase):
@@ -293,3 +302,38 @@ class PublicacionAdcEnVariasBolsasTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NovedadAdcRepetidaTest(unittest.TestCase):
+    """La misma etapa leída con restos de maquetación no debe publicarse dos veces."""
+
+    def test_misma_etapa_con_ruido_no_se_repite(self) -> None:
+        cursor = _CursorPublicaciones()
+        adc = {"id_emp": 114697, "numero_adc": "5/26", "url": "https://sede.gva.es/x?id_emp=114697",
+               "etapa_actual_gva": "Anuncio puesto de difícil cobertura Código GVA: 114697 Descargar información",
+               "fechas_publicacion": ["2026-10-15"], "documentos_pdf": []}
+        from app.gva_adc import _huella_novedad_adc
+        self.assertTrue(_publicacion_adc_en_bolsa(cursor, bolsa_id=9, fuente_id=1, adc=adc,
+                                                  huella=_huella_novedad_adc(adc)))
+        adc2 = dict(adc, etapa_actual_gva="Anuncio puesto de difícil cobertura", fechas_publicacion=["2026-10-16"])
+        self.assertFalse(_publicacion_adc_en_bolsa(cursor, bolsa_id=9, fuente_id=1, adc=adc2,
+                                                   huella=_huella_novedad_adc(adc2)))
+        self.assertEqual(len(cursor.filas), 1)
+
+    def test_etapa_distinta_si_se_publica(self) -> None:
+        cursor = _CursorPublicaciones()
+        adc = {"id_emp": 1, "numero_adc": "6/26", "url": "https://sede.gva.es/x?id_emp=1",
+               "etapa_actual_gva": "Anuncio", "fechas_publicacion": ["2026-10-15"], "documentos_pdf": []}
+        from app.gva_adc import _huella_novedad_adc
+        self.assertTrue(_publicacion_adc_en_bolsa(cursor, bolsa_id=9, fuente_id=1, adc=adc, huella=_huella_novedad_adc(adc)))
+        adc2 = dict(adc, etapa_actual_gva="Adjudicación")
+        self.assertTrue(_publicacion_adc_en_bolsa(cursor, bolsa_id=9, fuente_id=1, adc=adc2, huella=_huella_novedad_adc(adc2)))
+
+
+class LimpiezaEtapaAdcTest(unittest.TestCase):
+    def test_quita_codigo_gva_y_descargar(self) -> None:
+        from app.gva_adc import limpiar_etapa_adc, clave_etapa_adc
+        self.assertEqual(limpiar_etapa_adc("Anuncio puesto de difícil cobertura Código GVA: 114697 Descargar información"),
+                         "Anuncio puesto de difícil cobertura")
+        self.assertEqual(clave_etapa_adc("Anuncio puesto de DIFÍCIL cobertura"),
+                         clave_etapa_adc("Anuncio puesto de difícil cobertura Codi GVA: 1"))
